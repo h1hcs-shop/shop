@@ -19,6 +19,8 @@ RULES = [
 # shop_cart.py is vendored byte-for-byte from the bot: its user_id/chat_id SQL columns and t.me-free code are fine;
 # rules listed here are skipped for that file only.
 ALLOW = {"tools/vendor/shop_cart.py": {"chat_id_field"}, "tools/secret_scan.py": {r for r, _ in RULES}}
+# site/catalog.json: product codes ("k":"<10 digits>") are hashes of public product names, not ids; strip them before scanning.
+SANITIZE = {"site/catalog.json": re.compile(r'"k":"\d{1,12}"')}
 SKIP_DIRS = {".git", "__pycache__", ".cache"}
 TEXT = (".py", ".js", ".html", ".css", ".json", ".md", ".yml", ".yaml", ".txt", ".gitignore", "")
 
@@ -36,6 +38,8 @@ def scan(root=ROOT):
             except Exception:
                 hits.append((rel, 0, "unreadable_or_binary")); continue
             for i, line in enumerate(lines, 1):
+                if rel in SANITIZE:
+                    line = SANITIZE[rel].sub('"k":""', line)
                 for name, rx in RULES:
                     if name in ALLOW.get(rel, ()):
                         continue
