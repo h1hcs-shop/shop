@@ -24,8 +24,17 @@ ALLOW = {"tools/vendor/shop_cart.py": {"chat_id_field"}, "tools/secret_scan.py":
 # already shows). Any other t.me/ anywhere is still a finding.
 ALLOW_LINES = [("telegram_link", "site/app.js",
                 re.compile(r'^\s*if \(jump\) \{ try \{ tg\.openTelegramLink\("https://t\.me/" \+ user \+ "\?text=" \+ encodeURIComponent\(summary\(\)\)\); \} catch \(e\) \{\} \}$'))]
-# site/catalog.json: product codes ("k":"<10 digits>") are hashes of public product names, not ids; strip them before scanning.
-SANITIZE = {"site/catalog.json": re.compile(r'"k":"\d{1,12}"')}
+# site/catalog.json, two exact public-data patterns are neutralised before scanning (nothing else is):
+#  1. product codes ("k":"<digits>", max 12) are sha1 prefixes of public product names, not ids;
+#  2. inside an "img" value on https://h1hcs.com/ only, a CANONICAL UUID (8-4-4-4-12 hex) of the public storefront's
+#     product image (productId=pospal_product_<uuid> / productId=<uuid>): its last group can be all digits
+#     (e.g. -855716127872), which long_numeric_id would report. Any other number, in img or anywhere else, is still scanned.
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_IMG = re.compile(r'"img":"(https://h1hcs\.com/[^"\\]*)"')
+SANITIZE = {"site/catalog.json": [
+    lambda line: re.sub(r'"k":"\d{1,12}"', '"k":""', line),
+    lambda line: _IMG.sub(lambda m: '"img":"%s"' % _UUID.sub("UUID", m.group(1)), line),
+]}
 SKIP_DIRS = {".git", "__pycache__", ".cache"}
 TEXT = (".py", ".js", ".html", ".css", ".json", ".md", ".yml", ".yaml", ".txt", ".gitignore", "")
 
@@ -43,8 +52,8 @@ def scan(root=ROOT):
             except Exception:
                 hits.append((rel, 0, "unreadable_or_binary")); continue
             for i, line in enumerate(lines, 1):
-                if rel in SANITIZE:
-                    line = SANITIZE[rel].sub('"k":""', line)
+                for fn_ in SANITIZE.get(rel, ()):
+                    line = fn_(line)
                 for name, rx in RULES:
                     if name in ALLOW.get(rel, ()):
                         continue

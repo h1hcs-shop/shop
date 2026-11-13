@@ -177,5 +177,44 @@ class TGoods(unittest.TestCase):
         self.assertEqual(self.build(PRODUCTS[:1]), 1)                 # a real hiccup (46 -> 1) is still refused
 
 
+class TScan(unittest.TestCase):
+    """secret_scan SANITIZE (fix1, Actions #11): only canonical UUIDs inside h1hcs.com "img" values and the "k" codes of
+    site/catalog.json are neutralised; real ids / tokens are still found everywhere. All values below are FICTIONAL."""
+    UUID_DIGITS = "fd10eaed-0241-4fab-af5d-" + "0" * 11 + "1"          # last group all digits (the #11 case), fictional
+    def scan(self, catalog_line, rel="site/catalog.json"):
+        import secret_scan
+        d = tempfile.mkdtemp(); p = os.path.join(d, *rel.split("/")); os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(catalog_line)
+        return [n for _r, _i, n in secret_scan.scan(d)]
+
+    def img(self, url):
+        return '{"items":[{"k":"%s","n":"虚构零食","img":"%s"}]}' % ("12345" + "67890", url)    # all-digit k: sanitised
+
+    def test_public_image_uuid_is_not_a_finding(self):
+        for u in ("https://h1hcs.com/api/erp?resource=productImage&productId=pospal_product_%s&w=480&v=1v6t2l" % self.UUID_DIGITS,
+                  "https://h1hcs.com/api/erp?resource=productImage&productId=%s&w=480&v=abc" % self.UUID_DIGITS,
+                  "https://h1hcs.com/products/pospal/1234567890123456.webp?v=x1"):
+            self.assertEqual(self.scan(self.img(u)), [], u)
+
+    def test_real_ids_and_tokens_still_found(self):
+        tid = "70000" + "01011"                                               # fictional telegram-style user id
+        cases = {
+            "id in img query": self.img("https://h1hcs.com/api/erp?resource=productImage&productId=pospal_product_%s&uid=%s" % (self.UUID_DIGITS, tid)),
+            "id instead of uuid": self.img("https://h1hcs.com/api/erp?resource=productImage&productId=%s&w=480" % tid),
+            "uuid in name": '{"items":[{"n":"虚构 %s","img":""}]}' % self.UUID_DIGITS,
+            "uuid on other host": self.img("https://example.invalid/x?productId=%s&w=1" % self.UUID_DIGITS),
+            "bare id": '{"items":[{"n":"虚构","owner":-100%s}]}' % tid,
+            "13-digit k": '{"items":[{"k":"%s"}]}' % ("12345" + "67890" + "123"),
+            "uppercase uuid": self.img("https://h1hcs.com/api/erp?productId=FD10EAED-0241-4FAB-AF5D-%s&w=1" % ("0" * 11 + "1")),
+        }
+        for why, line in cases.items():
+            self.assertIn("long_numeric_id", self.scan(line), why)
+        tok = "%s:%s" % (tid[:9] + "1", "A" * 35)                       # fictional bot-token shape
+        self.assertIn("telegram_bot_token", self.scan(self.img("https://h1hcs.com/x?t=%s" % tok)))
+        self.assertIn("storefront_agent_id", self.scan(self.img("https://h1hcs.com/api/erp?agent=" + "agent_" + "0123abcd&productId=%s" % self.UUID_DIGITS)))
+        # the UUID exemption is for site/catalog.json only
+        self.assertIn("long_numeric_id", self.scan(self.img("https://h1hcs.com/api/erp?productId=%s&w=1" % self.UUID_DIGITS), rel="site/other.json"))
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
