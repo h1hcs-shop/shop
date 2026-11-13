@@ -5,6 +5,7 @@ Telegram 机器人「烟酒商城（小程序）」用的静态网页，托管�
 ## 目录
 - `site/` — 网页（index.html / app.js / style.css）和 `catalog.json`（由工作流生成；初始为空目录）。
 - `tools/build_catalog.py` — 从 h1hcs.com 公开商城（吉隆坡仓）抓商品，用与机器人**同一份**代码分类、生成商品码，导出 catalog.json（名称、单位、规格、价格、原价、图片地址；无库存）。只有商品数据变化才改写文件；抓取失败或商品数骤减 50% 以上时保留旧文件。
+- `tools/catalog_view.py` — （v4）页面显示顺序：香烟 / 酒水（白酒→洋酒→葡萄酒→啤酒→其他）/ 重振雄风 / 槟榔 在前，同品牌放一起、价格从高到低；「X（整箱）」并进单件「X」的详情里加购（两者商品码不变）。只重排 items 并加 `view`，`build_catalog.py` 的 `VIEW = False` 即回退。
 - `tools/vendor/` — 与机器人相同的模块：`shop_cart.py`（逐字节相同）、`shop_miniapp.py`、`catalog_live.py`（唯一差别：`AGENT` 改为运行时从密钥读取）。见 `VENDOR_SHA256.txt`。
 - `tools/secret_scan.py` — 密钥/ID 扫描（推送前本地跑一次；工作流每次也跑）。
 - `.github/workflows/catalog-pages.yml` — 每小时（UTC 第 23 分）构建；变化时提交 `site/catalog.json` 并部署 Pages；手动运行或推送时也部署。
