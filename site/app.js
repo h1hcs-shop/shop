@@ -322,14 +322,15 @@
     $("ph-box").hidden = !S.opts.phone;   // v4 (Kimi 04:13): typed only, optional; the Telegram-number button is gone
     if (document.activeElement !== $("ph")) $("ph").value = S.ph;
   }
-  // v4: who the customer is, for the pre-filled 客服 text when no phone is given. Only a menu / inline launch has the
+  // v4 / v4.1: who the customer is, for the pre-filled 客服 text when no phone is given. Only a menu / inline launch has the
   // (signed) user in initDataUnsafe; a keyboard launch has none -- there the message itself comes from the customer.
   function who() {
     var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
     if (!u || typeof u.id !== "number" || !isFinite(u.id)) return "";
     if (/^[A-Za-z0-9_]{5,32}$/.test(u.username || "")) return "@" + u.username;
-    var nm = one([u.first_name, u.last_name].filter(function (x) { return typeof x === "string" && x; }).join(" ")).slice(0, 40);
-    return (nm || "客户") + " tg://user?id=" + Math.floor(u.id);
+    // v4.1 (Kimi 04:51): no @username -> only the Telegram name (first_name + last_name), no id link
+    var nm = one([u.first_name, u.last_name].filter(function (x) { return typeof x === "string" && x; }).join(" ")).trim().slice(0, 40);
+    return nm || "（Telegram 未设名字）";
   }
 
   function renderPay() {
