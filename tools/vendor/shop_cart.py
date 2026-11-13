@@ -7,7 +7,34 @@ TZ = timezone(timedelta(hours=8))
 IMAGE_BASE = "https://h1hcs.com"
 CATS = [("cig", "🚬 香烟"), ("baijiu", "🥃 白酒"), ("beer", "🍺 啤酒"), ("spirits", "🥂 洋酒"),
         ("wine", "🍷 葡萄酒"), ("drink", "🍶 其他酒水"), ("betel", "🌰 槟榔")]
-CAT_NAME = dict(CATS)
+# Kimi 21:05 / 21:15「是商城里面的所有品，都上」: the Mini App (only) carries EVERY category of the mall's KL storefront.
+# Button shop menus keep CATS (烟酒槟榔) only. Order: 烟酒槟榔 first, then the known mall categories below, then any new
+# mall category in storefront order (id "m" + sha1(name)[:8], label "🛒 <mall name>"). No stock, same prices.
+GOODS_CATS = [("vape", "💨 电子烟", "电子烟"),
+              ("snack", "🍪 休闲零食", "休闲零食"), ("drinkm", "🥤 饮料乳品", "饮料乳品"), ("instant", "🍜 方便速食", "方便速食"),
+              ("grain", "🍚 粮油调味", "粮油调味"), ("frozen", "🧊 冷冻食品", "冷冻食品"), ("care", "🧴 个人洗护", "个人洗护"),
+              ("home", "🏠 家居日用", "家居日用"), ("adult", "💊 重振雄风", "重振雄风")]
+GOODS_BY_MALL = {m: c for c, _n, m in GOODS_CATS}
+MALL_OF = {"cig": "香烟", "betel": "槟榔", **{c: "酒水" for c in ("baijiu", "beer", "spirits", "wine", "drink")},
+           **{c: m for c, _n, m in GOODS_CATS}}
+# Category blacklist = mall category names that must NOT be imported (one-step removal, e.g. ["电子烟"]). Empty = all.
+# Builder: tools/build_catalog.py CAT_BLACKLIST; bot: config.json "shop_app_cat_blacklist" (read on every catalog load).
+ALL_CATS = CATS + [(c, n) for c, n, _m in GOODS_CATS]
+CAT_NAME = dict(ALL_CATS)
+_DYN_NAME = {}                   # dynamic ids of mall categories that appeared after this file was written
+
+
+def mall_cat_id(c):
+    """id of a non-烟酒 mall category (stable across builds)."""
+    if c in GOODS_BY_MALL:
+        return GOODS_BY_MALL[c]
+    k = "m" + hashlib.sha1(c.encode("utf-8")).hexdigest()[:8]
+    _DYN_NAME.setdefault(k, "🛒 " + c[:12])
+    return k
+
+
+def cat_label(cid):
+    return CAT_NAME.get(cid) or _DYN_NAME.get(cid) or "🛒 其他"
 # 酒水细分：mall `subcategory` is empty for every product, so the split uses an EXPLICIT map keyed by the mall product
 # code (bottle and 整箱 share one code), audited item-by-item against the live KL storefront on 2026-11-13 (82 酒水 rows /
 # 47 codes). Codes not in the map (new products) fall back to the ordered name rules below.
@@ -49,7 +76,17 @@ DUP_WINDOW = 600
 RECENT = 10
 CART_TTL_DAYS = 14
 RETENTION_DAYS = 90
-STATUS_TEXT = {"pending": "待客服确认", "confirmed": "已确认", "cancelled": "已取消"}
+STATUS_TEXT = {"pending": "待客服确认", "confirmed": "已确认", "cancelled": "已取消", "assigned": "已交给客服"}   # v3: assigned = Mini App order handed straight to 客服
+ORDER_STATUSES = ("pending", "assigned")   # create_order: pending = owner confirms (button shop); assigned = no owner step
+ADDR_MAX = 120
+PHONE_RX = re.compile(r"^\+?[0-9][0-9 ()\-]{5,22}$")
+ORDER_EXTRA_COLS = (("address", "TEXT"), ("lat", "REAL"), ("lng", "REAL"), ("phone", "TEXT"), ("phone_src", "TEXT"),
+                    ("src", "TEXT"), ("cs_sent", "INTEGER"), ("pay", "TEXT"))   # shop-miniapp-v3: idempotent ALTER TABLE ADD COLUMN
+# Kimi 20:49: 货到付款 — the customer picks HOW they will pay on delivery. Whitelist (code -> label); the bot never takes money
+# and never shows any account / address. Order matters (page + texts).
+PAY_METHODS = (("cash", "现金"), ("tng", "TNG"), ("usdt", "USDT"), ("wechat", "微信"), ("alipay", "支付宝"))
+PAY_LABEL = dict(PAY_METHODS)
+
 CITY = {"KL": "吉隆坡", "JB": "新山"}
 
 
@@ -68,8 +105,12 @@ def norm(s):
     return re.sub(r"\s+", "", (s or "").lower())
 
 
-def classify(row):
-    c = row.get("category") or ""
+def classify(row, goods=False, blacklist=()):
+    """goods=True (Mini App catalog): every other mall category too (KL rows only), unless its mall name is blacklisted.
+    The blacklist also applies to 香烟 / 酒水 / 槟榔 (by mall name) for the Mini App."""
+    c = (row.get("category") or "").strip()
+    if goods and c in blacklist:
+        return None
     if c == "香烟":
         return "cig"
     if c == "槟榔":
@@ -83,6 +124,8 @@ def classify(row):
             if rx.search(n):
                 return k
         return "drink"
+    if goods and c and row.get("wh") in (None, "KL"):
+        return mall_cat_id(c)
     return None
 
 
@@ -101,11 +144,13 @@ def item_key(name, unit, spec):
     return hashlib.sha1(("%s|%s|%s" % (norm(name), unit or "", spec or "")).encode()).hexdigest()[:10]
 
 
-def build_items(rows):
-    """rows: catalog rows with 'wh'. Returns (items_by_key, keys_by_cat) for shop categories only."""
+def build_items(rows, goods=False, blacklist=()):
+    """rows: catalog rows with 'wh'. Returns (items_by_key, keys_by_cat) for shop categories only.
+    goods=True: every KL mall category (the JB storefront is a different shop with its own categories), minus blacklist."""
     items = {}
+    blacklist = tuple(x.strip() for x in (blacklist or ()) if isinstance(x, str) and x.strip())
     for r in rows:
-        cat = classify(r)
+        cat = classify(r, goods, blacklist)
         if not cat:
             continue
         k = item_key(r.get("name"), r.get("saleUnit"), r.get("spec"))
@@ -116,9 +161,9 @@ def build_items(rows):
         it["wh"].setdefault(r.get("wh"), {"price": r.get("price"), "orig": r.get("originalPrice")})
         if not it["image"]:
             it["image"] = image_url(r.get("image"))
-    by_cat = {c: [] for c, _ in CATS}
+    by_cat = {c: [] for c, _ in (ALL_CATS if goods else CATS)}
     for k, it in items.items():          # mall order (catalog row order = storefront order) is kept
-        by_cat[it["cat"]].append(k)
+        by_cat.setdefault(it["cat"], []).append(k)   # new mall categories: appended in storefront order
     return items, by_cat
 
 
@@ -166,6 +211,42 @@ def cart_lines(cart_items, items, city):
     return out, round(sub, 2), missing, gone
 
 
+CONTACT_FRESH_DAYS = 30
+
+
+def clean_phone(v):
+    """-> normalised phone string or None (digits, spaces, +, -, brackets; 6..23 chars)."""
+    if not isinstance(v, str):
+        return None
+    v = " ".join(v.split())
+    return v if PHONE_RX.match(v) and sum(ch.isdigit() for ch in v) >= 6 else None
+
+
+def clean_extra(extra):
+    """v3 order extras -> {column: value} with only valid, bounded values (unknown keys dropped)."""
+    ex = {}
+    e = extra if isinstance(extra, dict) else {}
+    a = e.get("address")
+    if isinstance(a, str) and a.strip():
+        ex["address"] = " ".join(a.split())[:ADDR_MAX]
+    lat, lng = e.get("lat"), e.get("lng")
+    if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (lat, lng)) and -90 <= lat <= 90 and -180 <= lng <= 180:
+        ex["lat"], ex["lng"] = round(float(lat), 6), round(float(lng), 6)
+    ph = clean_phone(e.get("phone"))
+    if ph:
+        ex["phone"] = ph
+        ex["phone_src"] = e.get("phone_src") if e.get("phone_src") in ("tg", "typed") else "typed"
+    if e.get("pay") in PAY_LABEL:
+        ex["pay"] = e["pay"]
+    if e.get("src") in ("app", "btn"):
+        ex["src"] = e["src"]
+    return ex
+
+
+def map_link(lat, lng):
+    return "https://maps.google.com/?q=%.6f,%.6f" % (lat, lng)
+
+
 class ShopStore:
     def __init__(self, path):
         self.path = path
@@ -186,7 +267,13 @@ class ShopStore:
                 CREATE INDEX IF NOT EXISTS idx_shop_orders_user ON orders(user_id, created_at);
                 CREATE TABLE IF NOT EXISTS seq(city TEXT PRIMARY KEY, n INTEGER NOT NULL);
             """)
-            c.execute("PRAGMA user_version=1")
+            # shop-miniapp-v3 migration (backward compatible: only ADD COLUMN / new table; v2 code ignores them)
+            have = {r[1] for r in c.execute("PRAGMA table_info(orders)")}
+            for col, typ in ORDER_EXTRA_COLS:
+                if col not in have:
+                    c.execute("ALTER TABLE orders ADD COLUMN %s %s" % (col, typ))
+            c.execute("CREATE TABLE IF NOT EXISTS contacts(user_id INTEGER PRIMARY KEY, phone TEXT NOT NULL, at REAL NOT NULL)")
+            c.execute("PRAGMA user_version=2")
             c.commit()
         finally:
             c.close()
@@ -257,8 +344,13 @@ class ShopStore:
         return self._save(uid, cart)
 
     # ---- orders
-    def create_order(self, uid, chat_id, username, name, city, cs, note, lines, subtotal, missing, now=None):
+    def create_order(self, uid, chat_id, username, name, city, cs, note, lines, subtotal, missing, now=None,
+                     status="pending", extra=None):
+        """extra (v3, optional): address/lat/lng/phone/phone_src/src. status: pending (owner confirms) | assigned."""
         now = now or time.time()
+        if status not in ORDER_STATUSES:
+            raise ShopError("invalid")
+        ex = clean_extra(extra)
         if not (isinstance(uid, int) and uid > 0 and chat_id == uid):
             raise ShopError("not_private")
         if not lines or city not in CITY or not isinstance(cs, int):
@@ -274,7 +366,7 @@ class ShopStore:
                 nd = c.execute("SELECT COUNT(*) FROM orders WHERE user_id=? AND created_at>?", (uid, now - 86400)).fetchone()[0]
                 if nh >= MAX_PER_HOUR or nd >= MAX_PER_DAY:
                     raise ShopError("rate")
-                for r in c.execute("SELECT items FROM orders WHERE user_id=? AND city=? AND status='pending' AND created_at>?",
+                for r in c.execute("SELECT items FROM orders WHERE user_id=? AND city=? AND status IN ('pending','assigned') AND created_at>?",
                                    (uid, city, now - DUP_WINDOW)):
                     if json.dumps(sorted((s["key"], s["qty"]) for s in json.loads(r["items"]))) == sig:
                         raise ShopError("dup")
@@ -286,10 +378,11 @@ class ShopStore:
                     no = order_no(city, n)
                     if not c.execute("SELECT 1 FROM orders WHERE no=?", (no,)).fetchone():
                         break
-                cur = c.execute("INSERT INTO orders(no,user_id,chat_id,username,name,city,cs,note,items,subtotal,price_missing,"
-                                "status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
-                                (no, uid, chat_id, username, name, city, cs, note, json.dumps(snap, ensure_ascii=False),
-                                 subtotal, 1 if missing else 0, now))
+                cols = ["no", "user_id", "chat_id", "username", "name", "city", "cs", "note", "items", "subtotal",
+                        "price_missing", "status", "created_at"] + list(ex)
+                vals = [no, uid, chat_id, username, name, city, cs, note, json.dumps(snap, ensure_ascii=False),
+                        subtotal, 1 if missing else 0, status, now] + list(ex.values())
+                cur = c.execute("INSERT INTO orders(%s) VALUES(%s)" % (",".join(cols), ",".join("?" * len(cols))), vals)
                 c.commit()
                 return {"id": cur.lastrowid, "no": no}
             except Exception:
@@ -360,14 +453,47 @@ class ShopStore:
                 c.close()
         return self.order(oid)
 
+    # ---- v3: phone shared via Telegram (contact message, user_id == from.id) and the 客服 DM outcome
+    def set_contact(self, uid, phone, now=None):
+        ph = clean_phone(phone)
+        if not (isinstance(uid, int) and uid > 0) or not ph:
+            raise ShopError("invalid")
+        with self._lock:
+            c = self._conn()
+            try:
+                c.execute("INSERT INTO contacts(user_id, phone, at) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+                          "phone=excluded.phone, at=excluded.at", (uid, ph, now or time.time()))
+                c.commit()
+            finally:
+                c.close()
+        return ph
+
+    def contact(self, uid, max_age=CONTACT_FRESH_DAYS * 86400, now=None):
+        c = self._conn()
+        try:
+            r = c.execute("SELECT phone, at FROM contacts WHERE user_id=?", (int(uid),)).fetchone()
+        finally:
+            c.close()
+        return r["phone"] if r and (now or time.time()) - r["at"] <= max_age else None
+
+    def mark_cs_sent(self, oid, ok):
+        with self._lock:
+            c = self._conn()
+            try:
+                c.execute("UPDATE orders SET cs_sent=? WHERE id=?", (1 if ok else 0, int(oid)))
+                c.commit()
+            finally:
+                c.close()
+
     def purge(self, now=None):
         now = now or time.time()
         with self._lock:
             c = self._conn()
             try:
                 c.execute("DELETE FROM carts WHERE updated_at<?", (now - CART_TTL_DAYS * 86400,))
-                cur = c.execute("UPDATE orders SET username=NULL, name=NULL, note=NULL, purged=1 WHERE created_at<? AND purged=0",
-                                (now - RETENTION_DAYS * 86400,))
+                cur = c.execute("UPDATE orders SET username=NULL, name=NULL, note=NULL, address=NULL, lat=NULL, lng=NULL, "
+                                "phone=NULL, purged=1 WHERE created_at<? AND purged=0", (now - RETENTION_DAYS * 86400,))
+                c.execute("DELETE FROM contacts WHERE at<?", (now - RETENTION_DAYS * 86400,))
                 c.commit()
                 return cur.rowcount
             finally:

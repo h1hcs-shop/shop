@@ -1,4 +1,4 @@
-"""shop-miniapp-v1: Telegram Mini App front end for the 烟酒商城 (shop_cart).
+"""shop-miniapp-v1/v3: Telegram Mini App front end for the 烟酒商城 (shop_cart).
 
 The Mini App is a static page opened from a reply-keyboard KeyboardButton(web_app). It posts the cart back with
 Telegram.WebApp.sendData() -> the bot receives message.web_app_data in the user's private chat.
@@ -11,7 +11,8 @@ No stock is ever exported or shown. Pure module: no network, no Telegram calls, 
 import json
 import shop_cart
 
-VERSION = 1
+VERSION = 1                 # catalog.json format (unchanged)
+PAYLOAD_VERSIONS = (1, 2)   # v2 (shop-miniapp-v3) adds addr / ph / pc / j; v1 pages keep working
 PAYLOAD_MAX = 4096          # Telegram's sendData limit; anything larger is rejected before json parsing
 KEY_LEN = 10                # shop_cart.item_key -> sha1(...)[:10]
 
@@ -39,7 +40,7 @@ def parse(data, items, n_cs):
         p = json.loads(data)
     except Exception:
         _err("bad_json", "购物车数据无法识别，请在商城里重新提交。")
-    if not isinstance(p, dict) or p.get("v") != VERSION:
+    if not isinstance(p, dict) or p.get("v") not in PAYLOAD_VERSIONS or isinstance(p.get("v"), bool):
         _err("bad_version", "商城页面版本过旧，请关闭后重新打开商城。")
     raw = p.get("items")
     if not isinstance(raw, list) or not raw:
@@ -84,13 +85,46 @@ def parse(data, items, n_cs):
     note = note.strip()
     if "\n" in note or "\r" in note or len(note) > shop_cart.NOTE_MAX:
         _err("bad_note", "备注需单行、最多 %d 字。" % shop_cart.NOTE_MAX)
-    return {"items": cart, "city": city, "cs": cs, "note": note or None, "warnings": warnings}
+    out = {"items": cart, "city": city, "cs": cs, "note": note or None, "warnings": warnings,
+           "addr": None, "phone": None, "pc": False, "jump": False, "pay": None}
+    if p.get("v") == 2:
+        a = p.get("addr")
+        if a is not None:
+            if not isinstance(a, dict):
+                _err("bad_addr", "地址格式不对，请重新定位或填写。")
+            t = a.get("t") or ""
+            if not isinstance(t, str) or "\n" in t or "\r" in t or len(t) > shop_cart.ADDR_MAX:
+                _err("bad_addr", "地址需单行、最多 %d 字。" % shop_cart.ADDR_MAX)
+            lat, lng = a.get("lat"), a.get("lng")
+            ok_ll = all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (lat, lng)) and -90 <= lat <= 90 and -180 <= lng <= 180
+            if (lat is not None or lng is not None) and not ok_ll:
+                _err("bad_addr", "定位数据不对，请重新定位。")
+            acc = a.get("acc")
+            acc = int(acc) if isinstance(acc, (int, float)) and not isinstance(acc, bool) and 0 <= acc < 1e6 else None
+            if t.strip() or ok_ll:
+                out["addr"] = {"text": " ".join(t.split()) or None, "lat": lat if ok_ll else None, "lng": lng if ok_ll else None, "acc": acc}
+        ph = p.get("ph")
+        if ph not in (None, ""):
+            if shop_cart.clean_phone(ph) is None:
+                _err("bad_phone", "电话号码格式不对（只填数字，可带 + 和区号）。")
+            out["phone"] = shop_cart.clean_phone(ph)
+        pay = p.get("pay")
+        if pay is not None:                       # absent = the page has the 付款方式 section switched off
+            if not isinstance(pay, str) or pay not in shop_cart.PAY_LABEL:
+                _err("bad_pay", "付款方式不对，请在商城里重新选择（现金 / TNG / USDT / 微信 / 支付宝）。")
+            out["pay"] = pay
+        out["pc"] = p.get("pc") is True
+        out["jump"] = p.get("j") is True
+    return out
 
 
-def export_catalog(items, by_cat, updated_at, cs_list):
-    """JSON the Mini App loads (static hosting). Prices are KL prices (新山 = 吉隆坡价). NO stock / availability."""
+def export_catalog(items, by_cat, updated_at, cs_list, opts=None, cs_user=False):
+    """JSON the Mini App loads (static hosting). Prices are KL prices (新山 = 吉隆坡价). NO stock / availability.
+    v3: opts (page switches: location / geocode / phone / jump) and cs_user (public 客服 usernames, needed only for the
+    one-tap jump to the 客服 chat) are added only when given, so the v2 output is byte-for-byte unchanged by default."""
     out_items = []
-    for cat, _name in shop_cart.CATS:
+    order = [c for c, _n in shop_cart.ALL_CATS] + [c for c in by_cat if c not in shop_cart.CAT_NAME]   # 烟酒槟榔 first
+    for cat in order:
         for k in by_cat.get(cat, []):
             it = items[k]
             p = it["wh"].get("KL") or it["wh"].get("JB") or {}
@@ -98,8 +132,9 @@ def export_catalog(items, by_cat, updated_at, cs_list):
                               "p": p.get("price"), "o": p.get("orig") if (p.get("orig") or 0) > (p.get("price") or 0) else None,
                               "img": it.get("image") or ""})
     return {"v": VERSION, "updated_at": updated_at or "",
-            "cats": [{"id": c, "name": n} for c, n in shop_cart.CATS if by_cat.get(c)],
-            "cs": [{"name": c["name"], "icon": c["icon"]} for c in cs_list],     # display only; no usernames/links
+            "cats": [{"id": c, "name": shop_cart.cat_label(c)} for c in order if by_cat.get(c)],
+            "cs": [dict({"name": c["name"], "icon": c["icon"]}, **({"user": c["user"]} if cs_user and c.get("user") else {}))
+                   for c in cs_list],     # display only; username only for the jump (public in the bot already)
             "cities": [{"id": k, "name": v} for k, v in shop_cart.CITY.items()],
             "limits": {"lines": shop_cart.MAX_LINES, "qty": shop_cart.QTY_MAX, "note": shop_cart.NOTE_MAX},
-            "items": out_items}
+            "items": out_items, **({"opts": dict(opts)} if opts else {})}
