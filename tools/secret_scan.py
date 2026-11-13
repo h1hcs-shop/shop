@@ -19,6 +19,11 @@ RULES = [
 # shop_cart.py is vendored byte-for-byte from the bot: its user_id/chat_id SQL columns and t.me-free code are fine;
 # rules listed here are skipped for that file only.
 ALLOW = {"tools/vendor/shop_cart.py": {"chat_id_field"}, "tools/secret_scan.py": {r for r, _ in RULES}}
+# Exact single-line exemptions (rule, file, full-line regex). site/app.js builds the PUBLIC 客服 chat link for the v3
+# one-tap jump (Telegram.WebApp.openTelegramLink needs a t.me URL; usernames come from catalog.json and are the ones the bot
+# already shows). Any other t.me/ anywhere is still a finding.
+ALLOW_LINES = [("telegram_link", "site/app.js",
+                re.compile(r'^\s*if \(jump\) \{ try \{ tg\.openTelegramLink\("https://t\.me/" \+ user \+ "\?text=" \+ encodeURIComponent\(summary\(\)\)\); \} catch \(e\) \{\} \}$'))]
 # site/catalog.json: product codes ("k":"<10 digits>") are hashes of public product names, not ids; strip them before scanning.
 SANITIZE = {"site/catalog.json": re.compile(r'"k":"\d{1,12}"')}
 SKIP_DIRS = {".git", "__pycache__", ".cache"}
@@ -44,6 +49,8 @@ def scan(root=ROOT):
                     if name in ALLOW.get(rel, ()):
                         continue
                     if rx.search(line):
+                        if any(r == name and f == rel and lx.match(line) for r, f, lx in ALLOW_LINES):
+                            continue
                         hits.append((rel, i, name))
     return hits
 

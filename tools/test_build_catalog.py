@@ -27,7 +27,12 @@ def fake_store(products, per_page=3, fail=False):
 PRODUCTS = [prod("虚构牌香烟（硬）", "香烟", 4500, spec="10包", img="/products/cigarettes/1.webp", orig=5000, avail=False),
             prod("虚构茅台", "酒水", 150000, unit="瓶"), prod("虚构青岛啤酒", "酒水", 6000, unit="箱"),
             prod("虚构槟榔", "槟榔", 2500, unit="包"), prod("虚构饼干", "休闲零食", 500, unit="包"),
-            prod("虚构电子烟", "电子烟", 9000, unit="支")]   # mall files e-cigs under their own category -> excluded
+            prod("虚构电子烟", "电子烟", 9000, unit="支")]   # Kimi 21:15: e-cigs are in too (removable via CAT_BLACKLIST)
+# Kimi 21:05 / 21:15: EVERY KL mall category (fictional rows), incl. 重振雄风 and categories the code does not know yet
+GOODS_PRODUCTS = [prod("虚构洗发水", "个人洗护", 1590, unit="瓶", img="/products/care/9.webp"),
+                  prod("虚构方便面", "方便速食", 350, unit="包"), prod("虚构矿泉水", "饮料乳品", 120, unit="瓶"),
+                  prod("虚构抽纸", "家居日用", 990, unit="提"), prod("虚构保健品", "重振雄风", 9900, unit="盒"),
+                  prod("虚构一次性烟弹", "休闲零食", 3000, unit="盒"), prod("虚构新品类商品", "虚构新大类", 100, unit="件")]
 
 
 class T(unittest.TestCase):
@@ -44,10 +49,17 @@ class T(unittest.TestCase):
         raw = open(self.out, encoding="utf-8").read(); d = json.loads(raw)
         names = [i["n"] for i in d["items"]]
         self.assertIn("虚构牌香烟（硬）", names); self.assertIn("虚构槟榔", names)
-        self.assertNotIn("虚构饼干", names)                                      # snacks are not in the 烟酒 shop
-        self.assertNotIn("虚构电子烟", names); self.assertEqual(len(names), 4)
-        for w in ("available", "库存", "stock", "t.me", "\"user\""):
+        self.assertIn("虚构饼干", names)                                         # 21:05: snacks are in the 下单入口 too
+        self.assertIn("虚构电子烟", names); self.assertEqual(len(names), 6)       # 21:15: all mall products
+        for w in ("available", "库存", "stock", "t.me"):
             self.assertNotIn(w, raw)
+        for it in d["items"]:
+            self.assertFalse({"address", "lat", "lng", "phone", "stock"} & set(it))
+        # v3: only the bot's PUBLIC 客服 usernames (for the pre-filled jump) + page switches; geocoding off by default
+        self.assertEqual(d["cs"], [{"name": "阿霞", "icon": "👩", "user": "hycs1313"}])        # Kimi 21:03: CS_DROP = ["zycs7"]
+        self.assertEqual({k: d["opts"][k] for k in ("location", "phone", "jump", "pay", "geocode")},
+                         {"location": True, "phone": True, "jump": True, "pay": True, "geocode": False})
+        self.assertTrue(d["opts"]["geocode_url"].startswith("https://"))
         hard = next(i for i in d["items"] if i["n"] == "虚构牌香烟（硬）")
         self.assertEqual((hard["p"], hard["o"], hard["img"]), (45, 50, "https://h1hcs.com/products/cigarettes/1.webp"))
         self.assertEqual(len(hard["k"]), 10)
@@ -72,6 +84,32 @@ class T(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(B.build(get_json=fake_store(PRODUCTS)[0], out=self.out, agent="", sleep=lambda s: None), 2)
 
+    def test_cs_drop_only_axia_and_rollback(self):
+        # Kimi 21:03 「客服阿东全部去掉，就只留一个客服阿霞」: config CS_DROP; 阿霞 stays index 0 (the page sends the index)
+        self.assertEqual(B.CS_DROP, ["zycs7"]); self.assertEqual(B.CS_ALL[0]["user"], "hycs1313")
+        self.assertEqual(B.CS, [c for c in B.CS_ALL if c["user"] not in B.CS_DROP])
+        raw = (self.run_b(), open(self.out, encoding="utf-8").read())[1]
+        self.assertNotIn("zycs7", raw); self.assertNotIn("阿东", raw)
+        old = B.CS
+        try:                                   # rollback = CS_DROP = [] -> both 客服 again, same order as before
+            B.CS = [c for c in B.CS_ALL if c["user"] not in []]
+            self.assertEqual(self.run_b()[0], 0)
+            d = json.load(open(self.out, encoding="utf-8"))
+            self.assertEqual([c["user"] for c in d["cs"]], ["hycs1313", "zycs7"])
+        finally:
+            B.CS = old
+
+    def test_jump_off_exports_no_usernames(self):
+        o = dict(B.OPTS)
+        try:
+            B.OPTS["jump"] = False
+            self.assertEqual(self.run_b()[0], 0)
+            d = json.load(open(self.out, encoding="utf-8"))
+            self.assertEqual(d["cs"], [{"name": "阿霞", "icon": "👩"}])
+            self.assertFalse(d["opts"]["jump"])
+        finally:
+            B.OPTS.clear(); B.OPTS.update(o)
+
     def test_shrink_guard(self):
         many = [prod("虚构烟%02d" % i, "香烟", 3000 + i) for i in range(40)]
         self.run_b(many, per_page=50)
@@ -82,6 +120,61 @@ class T(unittest.TestCase):
     def test_secret_scan_clean(self):
         import secret_scan
         self.assertEqual(secret_scan.scan(), [])
+
+
+
+
+class TGoods(unittest.TestCase):
+    """Kimi 21:05: multi-category Mini App catalog (烟酒 first, then the mall's categories), same prices, no stock."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp(); self.out = os.path.join(self.d, "catalog.json")
+
+    def build(self, products, goods=True, blacklist=()):
+        old = B.GOODS, B.CAT_BLACKLIST; B.GOODS = goods; B.CAT_BLACKLIST = list(blacklist)
+        try:
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()):
+                return B.build(get_json=fake_store(products)[0], out=self.out, agent=AG, sleep=lambda s: None)
+        finally:
+            B.GOODS, B.CAT_BLACKLIST = old
+
+    def test_categories_order_exclusions_prices(self):
+        self.assertEqual(self.build(PRODUCTS + GOODS_PRODUCTS), 0)
+        d = json.load(open(self.out, encoding="utf-8"))
+        ids = [c["id"] for c in d["cats"]]
+        new = B.shop_cart.mall_cat_id("虚构新大类")
+        self.assertEqual(ids, ["cig", "baijiu", "beer", "betel", "vape", "snack", "drinkm", "instant", "care", "home", "adult", new])
+        self.assertEqual([c["name"] for c in d["cats"]][4:], ["💨 电子烟", "🍪 休闲零食", "🥤 饮料乳品", "🍜 方便速食", "🧴 个人洗护",
+                                                             "🏠 家居日用", "💊 重振雄风", "🛒 虚构新大类"])      # 烟酒 first, all mall cats
+        names = [i["n"] for i in d["items"]]
+        for n in ("虚构电子烟", "虚构保健品", "虚构一次性烟弹", "虚构新品类商品"):
+            self.assertIn(n, names)
+        self.assertEqual([i["c"] for i in d["items"]], sorted([i["c"] for i in d["items"]], key=ids.index))   # grouped in order
+        sh = next(i for i in d["items"] if i["n"] == "虚构洗发水")
+        self.assertEqual((sh["p"], sh["c"], sh["img"]), (15.9, "care", "https://h1hcs.com/products/care/9.webp"))
+        raw = open(self.out, encoding="utf-8").read()
+        for w in ("available", "库存", "stock"):
+            self.assertNotIn(w, raw)
+
+    def test_category_blacklist_one_step(self):
+        self.assertEqual(self.build(PRODUCTS + GOODS_PRODUCTS), 0)
+        self.assertEqual(self.build(PRODUCTS + GOODS_PRODUCTS, blacklist=["电子烟", "重振雄风"]), 0)   # not refused as a shrink
+        d = json.load(open(self.out, encoding="utf-8"))
+        self.assertNotIn("vape", [c["id"] for c in d["cats"]]); self.assertNotIn("adult", [c["id"] for c in d["cats"]])
+        names = [i["n"] for i in d["items"]]
+        self.assertNotIn("虚构电子烟", names); self.assertNotIn("虚构保健品", names); self.assertIn("虚构一次性烟弹", names)
+        self.assertEqual(self.build(PRODUCTS + GOODS_PRODUCTS, blacklist=["香烟"]), 0)
+        self.assertNotIn("cig", [c["id"] for c in json.load(open(self.out))["cats"]])
+
+    def test_rollback_goods_off_is_not_a_shrink(self):
+        many = PRODUCTS + [prod("虚构零食%02d" % i, "休闲零食", 100 + i, unit="包") for i in range(40)]
+        self.assertEqual(self.build(many), 0)
+        self.assertEqual(len(json.load(open(self.out))["items"]), 46)
+        self.assertEqual(self.build(many, goods=False), 0)          # 46 -> 4 items: allowed, the switch was turned off
+        d = json.load(open(self.out))
+        self.assertEqual(len(d["items"]), 4); self.assertNotIn("snack", [c["id"] for c in d["cats"]])   # 烟酒槟榔 only
+        self.assertEqual(self.build(many), 0)
+        self.assertEqual(self.build(PRODUCTS[:1]), 1)                 # a real hiccup (46 -> 1) is still refused
 
 
 if __name__ == "__main__":

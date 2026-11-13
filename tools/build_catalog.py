@@ -1,4 +1,4 @@
-"""Hourly catalog builder for the 烟酒商城 Mini App (GitHub Actions).
+"""Hourly catalog builder for the 「下单入口」 Mini App (GitHub Actions): 烟酒槟榔 + (GOODS) the mall's other KL categories.
 
 Fetches the PUBLIC h1hcs.com storefront (吉隆坡 warehouse only) with the bot's own catalog_live.py, classifies and keys
 products with the bot's own shop_cart.py (same 7 categories, same item_key = sha1(name|unit|spec)[:10]) and writes
@@ -13,7 +13,28 @@ sys.path.insert(0, os.path.join(HERE, "vendor"))
 import catalog_live, shop_cart, shop_miniapp
 
 OUT = os.path.join(os.path.dirname(HERE), "site", "catalog.json")
-CS = [{"name": "阿霞", "icon": "👩"}, {"name": "阿东", "icon": "👨"}]   # same order as the bot's 客服 list (index 0 / 1)
+# same order as the bot's 客服 list (index 0 / 1). "user" = the PUBLIC usernames the bot already shows in its 客服 buttons;
+# exported only when OPTS["jump"] is on (the page needs them to open the 客服 chat with the order pre-filled).
+CS_ALL = [{"name": "阿霞", "icon": "👩", "user": "hycs1313"}, {"name": "阿东", "icon": "👨", "user": "zycs7"}]
+# Kimi 21:03 「客服阿东全部去掉，就只留一个客服阿霞」. Rollback = CS_DROP = [] and push (page shows both again; pair it with
+# the bot switch cs_only_axia: false). Only trailing entries may be dropped: the page sends the index, 阿霞 must stay 0.
+# With ONE 客服 left the page shows no 「选择客服」 and every order goes to 阿霞.
+CS_DROP = ["zycs7"]
+CS = [c for c in CS_ALL if c["user"] not in CS_DROP]
+# Page switches (shop-miniapp-v3). Rollback = set to False and push: the next build changes catalog.json and redeploys.
+#   location: 📍 定位 + manual address   phone: 📱 requestContact + manual phone   jump: open the 客服 chat pre-filled on submit
+#   geocode: reverse geocoding of the coordinates via geocode_url. OFF: the public OSM Nominatim API may only be used after
+#   a deliberate, informed decision by the operator (usage policy: <= 1 req/s, attribution, switchable without an app
+#   update, no autocomplete/bulk). Turn on only after reading https://operations.osmfoundation.org/policies/nominatim/ .
+#   pay: 「付款方式：货到付款」 required choice (现金 / TNG / USDT / 微信 / 支付宝), Kimi 20:49
+OPTS = {"location": True, "phone": True, "jump": True, "pay": True, "geocode": False,
+        "geocode_url": "https://nominatim.openstreetmap.org/reverse"}
+# Kimi 21:05 / 21:15「是商城里面的所有品，都上」: EVERY category of the KL storefront (shop_cart.GOODS_CATS + any new one),
+# same prices, no stock. Rollback = GOODS False and push: the next build is 烟酒槟榔 only (as in v2).
+GOODS = True
+# One-step removal of whole mall categories (mall names as shown in the storefront), e.g. ["电子烟"] or ["电子烟", "重振雄风"].
+# Push -> the next hourly build drops them. Keep the bot's config.json "shop_app_cat_blacklist" the same.
+CAT_BLACKLIST = []
 ITEM_KEYS = {"k", "n", "u", "s", "c", "p", "o", "img"}
 MIN_KEEP = 0.5          # refuse a result with < 50% of the previous items (storefront hiccup)
 
@@ -52,9 +73,9 @@ def build(get_json=None, out=OUT, agent=None, sleep=None):
     for wh, lst in (data.get("warehouses") or {}).items():
         for x in lst or []:
             x = dict(x); x["wh"] = wh; rows.append(x)
-    items, by_cat = shop_cart.build_items(rows)
+    items, by_cat = shop_cart.build_items(rows, goods=GOODS, blacklist=CAT_BLACKLIST)
     upd = (data.get("wh_updated") or {}).get("KL") or data.get("updated_at") or ""
-    doc = shop_miniapp.export_catalog(items, by_cat, upd if isinstance(upd, str) else "", CS)
+    doc = shop_miniapp.export_catalog(items, by_cat, upd if isinstance(upd, str) else "", CS, opts=OPTS, cs_user=bool(OPTS.get("jump")))
     for it in doc["items"]:
         if set(it) != ITEM_KEYS:
             print("unexpected item fields"); return 1
@@ -63,7 +84,14 @@ def build(get_json=None, out=OUT, agent=None, sleep=None):
         prev = json.load(open(out, encoding="utf-8"))
     except Exception:
         pass
-    n_prev = len((prev or {}).get("items") or [])
+    # shrink guard only over the categories this build is meant to contain (switching GOODS off is not a "hiccup")
+    bl_ids = {shop_cart.mall_cat_id(m) for m in CAT_BLACKLIST if m not in ("香烟", "酒水", "槟榔")} | \
+             {c for c, m in shop_cart.MALL_OF.items() if m in CAT_BLACKLIST}
+    if GOODS:   # any category except blacklisted ones (new mall categories have dynamic ids)
+        n_prev = sum(1 for it in ((prev or {}).get("items") or []) if isinstance(it, dict) and it.get("c") not in bl_ids)
+    else:
+        allowed = {c for c, _n in shop_cart.CATS}
+        n_prev = sum(1 for it in ((prev or {}).get("items") or []) if isinstance(it, dict) and it.get("c") in allowed)
     if n_prev >= 20 and len(doc["items"]) < n_prev * MIN_KEEP:
         print("refused: %d items vs %d before (kept old file)" % (len(doc["items"]), n_prev)); return 1
     if not doc["items"]:
@@ -76,7 +104,10 @@ def build(get_json=None, out=OUT, agent=None, sleep=None):
         json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
         f.write("\n")
     os.replace(tmp, out)
-    print("updated: %d items (was %d)" % (len(doc["items"]), n_prev))
+    per = {}
+    for it in doc["items"]:
+        per[it["c"]] = per.get(it["c"], 0) + 1
+    print("updated: %d items (was %d) | %s" % (len(doc["items"]), n_prev, " ".join("%s=%d" % (c, per[c]) for c in per)))
     return 0
 
 
