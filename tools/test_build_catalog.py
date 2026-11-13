@@ -265,10 +265,14 @@ class TView(unittest.TestCase):
         for it in d["items"]:
             self.assertEqual(set(it), B.ITEM_KEYS)                                            # item fields unchanged
 
-    def test_cigarettes_brand_then_price(self):
+    def test_cigarettes_keep_mall_order(self):
+        # v4.1 (Kimi 04:51): 香烟 = exactly the order the mall (storefront) returns, not re-sorted by brand / price
         d = self.build()
-        # 杂牌 900 first (its own brand group), then 中华 (top 500, 2 items) before 利群 (top 500, 2 items) by name tie-break
-        self.assertEqual(self.names(d, ["cig"]), ["虚构杂牌烟", "虚构中华 软", "虚构中华 硬", "虚构利群 铂金", "虚构利群 软"])
+        self.assertEqual(self.names(d, ["cig"]), ["虚构利群 软", "虚构中华 硬", "虚构利群 铂金", "虚构中华 软", "虚构杂牌烟"])
+        rev = [x for x in self.P if x["category"] != "香烟"] + [x for x in self.P if x["category"] == "香烟"][::-1]
+        d = self.build(rev)
+        self.assertEqual(self.names(d, ["cig"]), ["虚构杂牌烟", "虚构中华 软", "虚构利群 铂金", "虚构中华 硬", "虚构利群 软"])
+        self.assertEqual(self.names(d, ["betel"]), ["虚构200和成天下槟榔", "虚构100和成天下槟榔", "虚构50新发槟榔"])  # others unchanged
 
     def test_liquor_order_baijiu_spirits_wine_beer_other(self):
         d = self.build()

@@ -2,7 +2,7 @@
 
 1. Categories: 香烟 / 酒水 (白酒、洋酒、葡萄酒、啤酒、其他酒水 merged) / 重振雄风 (right after 酒水) / 槟榔, then every
    other mall category in the catalog's order. The page shows them as wrapping chips (2 rows, 3 if the screen is narrow).
-2. Order: 香烟、酒水 (per sub-category)、槟榔、重振雄风: brands together, brand groups by their highest price (high -> low),
+2. Order: 香烟 = the mall's own order (v4.1, Kimi 04:51). 酒水 (per sub-category)、槟榔、重振雄风: brands together, brand groups by their highest price (high -> low),
    inside a brand price high -> low. 酒水 sub-categories: 白酒 -> 洋酒 -> 葡萄酒 -> 啤酒 -> 其他酒水. Other categories: price
    high -> low (then name, so same-brand names starting alike stay together). Items sold only by the 箱 (no single item)
    come after the single items of their category.
@@ -24,7 +24,12 @@ GROUP_ICON = {"liquor": "🍷"}
 # short chip labels so 13+ chips fit in 2 rows on a 360-430 px phone; the section title keeps the full mall name
 SHORT = {"休闲零食": "零食", "饮料乳品": "饮料", "方便速食": "速食", "粮油调味": "粮油", "冷冻食品": "冷冻",
          "个人洗护": "洗护", "家居日用": "日用"}
-BRAND_SORT = {"cig", "betel", "adult"} | set(LIQUOR)
+# v4.1 (Kimi 11-14 04:51「香烟的排序跟华润万家商城的排序一致」): 香烟 keeps the storefront's own order exactly as the mall
+# returns it (catalog_live -> shop_cart.build_items -> export_catalog keep the row order). Checked 2026-11-14 04:5x UTC+8:
+# the mall's 香烟 category list (category=香烟 / feed=KL:香烟) == the unfiltered storefront order, 102/102 items; every
+# catalogCategories.position is unset, so the mall lists them by name. Rollback = remove "cig" from MALL_ORDER.
+MALL_ORDER = {"cig"}
+BRAND_SORT = {"betel", "adult"} | set(LIQUOR)
 # brand keywords, first match wins (more specific first). Alias -> brand shown together.
 BRANDS = [("1916", "黄鹤楼"), ("黄鹤楼", "黄鹤楼"), ("和天下", "和天下"), ("中华", "中华"), ("利群", "利群"),
           ("芙蓉王", "芙蓉王"), ("南京", "南京"), ("云烟", "云烟"), ("双喜", "双喜"), ("七匹狼", "七匹狼"), ("灰狼", "七匹狼"),
@@ -127,7 +132,7 @@ def build_view(doc):
     for g in groups:
         for c in g["cats"]:
             rows = [it for it in heads if it.get("c") == c]
-            srt = _brand_sort if c in BRAND_SORT else _plain_sort
+            srt = (lambda r: list(r)) if c in MALL_ORDER else _brand_sort if c in BRAND_SORT else _plain_sort
             # a 整箱 with no single item (unit 箱) goes after the single items, so the list reads in single prices
             for it in srt([x for x in rows if x.get("u") != "箱"]) + srt([x for x in rows if x.get("u") == "箱"]):
                 out.append(it)
