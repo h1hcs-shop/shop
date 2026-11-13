@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>烟酒商城</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<header class="hd">
+  <div class="logo">🛒</div>
+  <div><div class="ttl">烟酒商城</div><div class="sub">香烟 · 酒水 · 槟榔　吉隆坡、新山同价　货到付款</div></div>
+</header>
+<nav class="tabs">
+  <button data-tab="shop" class="on">选购商品</button>
+  <button data-tab="cart">购物车<span id="tabn"></span></button>
+</nav>
+<main>
+  <section id="v-shop">
+    <div id="chips" class="chips"></div>
+    <label class="search"><span>搜索</span><input id="q" type="search" maxlength="20" placeholder="输入商品名称，如 中华 / 茅台" autocomplete="off"></label>
+    <div class="sec"><h2 id="sec-t">全部</h2><span id="sec-n"></span></div>
+    <div id="list"></div>
+    <p id="upd" class="foot"></p>
+  </section>
+  <section id="v-cart" hidden>
+    <div id="lines"></div>
+    <div id="checkout">
+      <div class="sum"><span>商品合计</span><b id="sub">RM 0</b></div>
+      <div class="kv"><span>配送费用</span><span>待客服确认</span></div>
+      <div class="kv"><span>订单总额</span><span>待确认</span></div>
+      <div class="fld"><div class="lbl">配送城市</div><div id="city" class="seg"></div><div class="hint">新山按吉隆坡价格，同价</div></div>
+      <div class="fld"><div class="lbl">选择客服</div><div id="cs" class="seg"></div></div>
+      <div class="fld"><div class="lbl">订单备注（选填，单行）</div>
+        <input id="note" type="text" maxlength="100" placeholder="有需要特别说明的内容，可写在这里"><div class="hint"><span id="notec">0</span>/100</div></div>
+      <button id="submit" class="primary">生成订单并联系客服</button>
+      <button id="clear" class="link">清空购物车</button>
+      <p class="foot">不显示库存，以客服确认为准。机器人里不收款；运费、总额与送达时间由客服确认。不需要填写姓名、电话、地址。</p>
+    </div>
+    <div id="empty" class="empty" hidden>购物车是空的，去「选购商品」挑选吧。</div>
+  </section>
+  <div id="err" class="err" hidden></div>
+</main>
+<footer class="bar">
+  <div><b id="tot">RM 0</b><div id="cnt" class="sub2">已选 0 款，共 0 件</div></div>
+  <button id="go" class="primary">购物车（0）</button>
+</footer>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js?v=1"></script>
+</body>
+</html>
