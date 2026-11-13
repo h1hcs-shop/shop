@@ -1,4 +1,9 @@
-/* shop-miniapp-v3 「下单入口」 Mini App (烟酒槟榔 + the mall's 零食/饮料/速食/粮油/冷冻/洗护/日用, Kimi 21:02 / 21:05). Static page; loads catalog.json (built hourly by GitHub Actions, NO stock), keeps the
+/* shop-miniapp-v4 (Kimi 11-14 04:10 / 04:13): catalog.json "view" = merged categories (香烟 / 酒水 / 重振雄风 / 槟榔 …, chips
+   wrap to 2-3 rows), brand + price order (done by tools/catalog_view.py, the page keeps the item order) and 整箱 packs shown
+   inside their single item's sheet (each keeps its own product code: the payload to the bot is unchanged). No
+   「用 Telegram 提供号码」 any more: the phone is typed and optional; without it the pre-filled 客服 text names the customer.
+   A catalog without "view" falls back to the v3 layout.
+   shop-miniapp-v3 「下单入口」 Mini App (烟酒槟榔 + the mall's 零食/饮料/速食/粮油/冷冻/洗护/日用, Kimi 21:02 / 21:05). Static page; loads catalog.json (built hourly by GitHub Actions, NO stock), keeps the
    cart in localStorage, submits {v:2,items:[[key,qty,shownPrice]],cs,city,note,addr,ph,pc,j} via Telegram.WebApp.sendData
    (keyboard-button launch only). The bot re-prices everything server-side. Page switches come from catalog.json "opts":
    location / geocode / phone / jump (all off when missing). No personal data ever leaves the device except:
@@ -18,7 +23,7 @@
   var PAY = [["cash", "现金"], ["tng", "TNG"], ["usdt", "USDT"], ["wechat", "微信"], ["alipay", "支付宝"]];
   function payLabel(c) { var x = PAY.filter(function (p) { return p[0] === c; })[0]; return x ? x[1] : ""; }
   var S = {cat: "all", q: "", tab: "shop", cart: {}, city: "KL", cs: null, note: "", addr: "", ph: "", pc: false, loc: null, pay: null,
-           locMsg: "", data: null, byKey: {}, opts: {}};
+           locMsg: "", data: null, byKey: {}, opts: {}, groups: [], packs: {}, hidden: {}, headOf: {}};
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -34,6 +39,36 @@
     catch (e) { return /^(img|demo)\/[\w.\-]+$/.test(u || "") ? u : ""; }      // relative = locally hosted copies
   }
   function csUser(i) { var c = S.data.cs[i] || {}; return /^[A-Za-z0-9_]{5,32}$/.test(c.user || "") ? c.user : ""; }
+
+  /* ---------- v4: view (groups / packs) ---------- */
+  function setupView(data) {
+    var v = data.view, cats = {}, items = data.items;
+    data.cats.forEach(function (c) { cats[c.id] = c; });
+    var ok = v && v.v === 1 && Array.isArray(v.groups) && Array.isArray(v.packs);
+    if (ok) {
+      S.groups = v.groups.filter(function (g) { return g && typeof g.id === "string" && Array.isArray(g.cats) && g.cats.length; })
+        .map(function (g) { return {id: g.id, name: String(g.name || g.id), short: String(g.short || g.name || g.id), cats: g.cats, sub: g.sub === true}; });
+      v.packs.forEach(function (p) {
+        if (!Array.isArray(p) || p.length < 2) return;
+        var h = items[p[0]]; if (!h || S.hidden[h.k]) return;
+        var ps = p.slice(1).map(function (i) { return items[i]; }).filter(function (x) { return x && x.k !== h.k && !S.packs[x.k]; });
+        if (!ps.length) return;
+        S.packs[h.k] = ps; ps.forEach(function (x) { S.hidden[x.k] = true; S.headOf[x.k] = h.k; });
+      });
+    }
+    if (!S.groups.length) S.groups = data.cats.map(function (c) { return {id: c.id, name: c.name.replace(/^\S+\s/, ""), short: c.name.replace(/^\S+\s/, ""), cats: [c.id], sub: false}; });
+    S.catName = function (id) { return cats[id] ? cats[id].name.replace(/^\S+\s/, "") : id; };
+  }
+  function variants(k) { return [S.byKey[k]].concat(S.packs[k] || []); }
+  function groupQty(k) { return variants(k).reduce(function (n, it) { return n + (S.cart[it.k] || 0); }, 0); }
+  // 「单瓶」 / 「整箱 · 15瓶」 labels and the per-piece price of a pack (only when its spec says how many)
+  function singleLabel(it) { return /^[\u4e00-\u9fa5]$/.test(it.u || "") ? "单" + it.u : "单件"; }
+  function packLabel(it) { return "整箱" + (it.s && it.s !== "箱" && it.s !== it.u ? " · " + it.s : ""); }
+  function perPiece(pk) {
+    var m = /^(\d{1,3})\s*(瓶|罐|盒|包|袋|桶|杯|个|小包|小条|支|条)$/.exec(pk.s || "");
+    if (!m || pk.p == null || +m[1] < 2) return "";
+    return "约 RM" + money(Math.round(pk.p / +m[1] * 100) / 100) + "/" + m[2].replace(/^小/, "");
+  }
 
   function save() { try { localStorage.setItem(LS, JSON.stringify({c: S.cart, city: S.city, cs: S.cs, note: S.note, addr: S.addr, ph: S.ph, pay: S.pay})); } catch (e) {} }
   function load() {
@@ -61,7 +96,7 @@
     }
     haptic(); save(); renderBar();
     if (S.tab === "shop") renderList(); else renderCart();
-    if (S.sheetKey === k) renderSheet();
+    if (S.sheetKey) renderSheet();
   }
 
   function stepper(k, big) {
@@ -91,10 +126,11 @@
     return im;
   }
 
-  function tile(it) {      // v3: 5 per row; tap = detail sheet with the − / + buttons
+  function tile(it) {      // v3: 5 per row; tap = detail sheet with the − / + buttons. v4: single price, 整箱 in the sheet
     var t = el("button", "tile"); t.type = "button";
-    t.append(imgBox(it), el("div", "tn", it.n), el("div", "tp", it.p == null ? "待确认" : "RM" + money(it.p)));
-    var q = S.cart[it.k]; if (q) t.append(el("span", "badge", String(q)));
+    var im = imgBox(it); if (S.packs[it.k]) im.append(el("span", "pk", "可整箱"));
+    t.append(im, el("div", "tn", it.n), el("div", "tp", it.p == null ? "待确认" : "RM" + money(it.p) + (it.u === "箱" ? "/箱" : "")));
+    var q = groupQty(it.k); if (q) t.append(el("span", "badge", String(q)));
     t.onclick = function () { openSheet(it.k); };
     return t;
   }
@@ -114,38 +150,78 @@
     info.append(el("div", "nm", it.n), el("div", "sp", (it.s ? "规格：" + it.s + " · " : "") + "单位：" + it.u), priceNode(it));
     top.append(imgBox(it), info);
     var done = el("button", "link", "完成"); done.onclick = closeSheet;
-    c.append(top, stepper(it.k, true), done);
-  }
-
-  function visible() {
-    var q = norm(S.q), items = S.data.items;
-    if (q) return items.filter(function (it) { return norm(it.n + it.s).indexOf(q) >= 0; });
-    return S.cat === "all" ? items : items.filter(function (it) { return it.c === S.cat; });
-  }
-
-  function renderChips() {
-    var c = $("chips"); c.textContent = "";
-    [{id: "all", name: "全部"}].concat(S.data.cats).forEach(function (x) {
-      var b = el("button", S.cat === x.id && !S.q ? "on" : "", x.name.replace(/^\S+\s/, ""));
-      b.onclick = function () { S.cat = x.id; S.q = ""; $("q").value = ""; renderChips(); renderList(); window.scrollTo(0, 0); };
-      c.append(b);
+    var ps = S.packs[it.k];
+    if (!ps) { c.append(top, stepper(it.k, true), done); return; }
+    // v4: 单瓶 + 整箱 options, each with its own − / + (both product codes go to the bot as before)
+    var box = el("div", "opts"); box.append(el("div", "lbl", "选择规格"));
+    variants(it.k).forEach(function (v, i) {
+      var r = el("div", "opt" + (S.cart[v.k] ? " on" : "")), l = el("div", "ol");
+      l.append(el("b", null, i ? packLabel(v) : singleLabel(v)));
+      var pr = el("div", "op"); pr.append(el("span", null, v.p == null ? "价格待确认" : "RM " + money(v.p)), el("i", null, " / " + v.u));
+      var pp = i ? perPiece(v) : ""; if (pp) pr.append(el("em", null, " · " + pp));
+      l.append(pr); r.append(l, stepper(v.k)); box.append(r);
     });
+    c.append(top, box, done);
+  }
+
+  function curGroup() { return S.groups.filter(function (g) { return g.id === S.cat; })[0] || null; }
+  function visible() {     // v4: packs are shown inside their single item; items keep the catalog (= display) order
+    var q = norm(S.q), items = S.data.items.filter(function (it) { return !S.hidden[it.k]; });
+    if (q) return items.filter(function (it) { return variants(it.k).some(function (v) { return norm(v.n + v.s).indexOf(q) >= 0; }); });
+    var g = curGroup(); if (!g) return items;
+    return items.filter(function (it) { return g.cats.indexOf(it.c) >= 0; });
+  }
+  // the list with section headers: 「全部」 -> one per group, 酒水 -> 白酒 / 洋酒 / 葡萄酒 / 啤酒 / 其他酒水
+  function entries(v) {
+    if (S.q) return v;
+    var g = curGroup(), out = [], last = null, byCat = {};
+    S.groups.forEach(function (x) { x.cats.forEach(function (c) { byCat[c] = x; }); });
+    var keyOf = g ? (g.sub ? function (it) { return it.c; } : null) : function (it) { return (byCat[it.c] || {}).id || it.c; };
+    if (!keyOf) return v;
+    var cnt = {}; v.forEach(function (it) { var h = keyOf(it); cnt[h] = (cnt[h] || 0) + 1; });
+    v.forEach(function (it) {
+      var h = keyOf(it);
+      if (h !== last) { last = h; out.push({hd: g ? S.catName(h) : ((byCat[it.c] || {}).name || S.catName(it.c)), n: cnt[h]}); }
+      out.push(it);
+    });
+    return out;
+  }
+
+  // v4 (Kimi 04:10): every category visible, 2 balanced rows; 3 rows only when 2 do not fit (narrow phones). No side scroll.
+  function renderChips() {
+    var c = $("chips"), all = [{id: "all", short: "全部"}].concat(S.groups);
+    var draw = function (rows) {
+      c.textContent = ""; var per = Math.ceil(all.length / rows), row = null;
+      all.forEach(function (x, i) {
+        if (i % per === 0) { row = el("div", "crow"); c.append(row); }
+        var b = el("button", S.cat === x.id && !S.q ? "on" : "", x.short);
+        b.onclick = function () { S.cat = x.id; S.q = ""; $("q").value = ""; renderChips(); renderList(); window.scrollTo(0, 0); };
+        row.append(b);
+      });
+      return [].some.call(c.children, function (r) { return r.scrollWidth > r.clientWidth + 1; });
+    };
+    var rows = all.length > 7 ? 2 : 1;
+    while (draw(rows) && rows < 4) rows++;
+    S.chipRows = rows;
   }
 
   function renderList() {
     var v = visible(), l = $("list"); l.textContent = "";
-    var cat = S.data.cats.filter(function (x) { return x.id === S.cat; })[0];
-    $("sec-t").textContent = S.q ? "搜索「" + S.q + "」" : (cat ? cat.name.replace(/^\S+\s/, "") : "全部");
+    var g = curGroup();
+    $("sec-t").textContent = S.q ? "搜索「" + S.q + "」" : (g ? g.name : "全部");
     $("sec-n").textContent = v.length + " 款商品 · 点商品选数量";
     if (!v.length) l.append(el("div", "empty", S.q ? "没找到相关商品，换个关键词试试" : "这个品类暂时没有商品"));
-    S.listV = v; S.listN = 0; moreTiles();
+    S.listV = entries(v); S.listN = 0; moreTiles();
   }
   // render in batches (1000+ goods): only PAGE_N tiles at a time, the next batch when the sentinel scrolls into view;
   // every <img> is loading=lazy, so only images near the viewport are fetched
   function moreTiles() {
     var l = $("list"), v = S.listV || [], old = $("more"); if (old) old.remove();
     var frag = document.createDocumentFragment(), end = Math.min(v.length, S.listN + PAGE_N);
-    for (var i = S.listN; i < end; i++) frag.append(tile(v[i]));
+    for (var i = S.listN; i < end; i++) {
+      if (v[i].hd) { var h = el("div", "gh"); h.append(el("b", null, v[i].hd), el("span", null, v[i].n + " 款")); frag.append(h); }
+      else frag.append(tile(v[i]));
+    }
     S.listN = end; l.append(frag);
     if (end < v.length) {
       var m = el("button", "more", "加载更多（还有 " + (v.length - end) + " 款）"); m.id = "more"; m.onclick = moreTiles; l.append(m);
@@ -241,16 +317,19 @@
       .catch(function () {});
   }
 
-  /* ---------- v3: phone (Telegram.WebApp.requestContact -> the bot gets the verified contact message) ---------- */
+  /* ---------- phone: v4 typed only (optional) ---------- */
   function renderPh() {
-    $("ph-box").hidden = !S.opts.phone;
-    $("tgph").hidden = !ver("6.9") || typeof (tg || {}).requestContact !== "function";
-    $("ph-st").textContent = S.pc ? "✅ 已通过 Telegram 提供号码（机器人已收到，会写进订单）" : ($("tgph").hidden ? "" : "推荐：一键提供，不用手动输入");
+    $("ph-box").hidden = !S.opts.phone;   // v4 (Kimi 04:13): typed only, optional; the Telegram-number button is gone
     if (document.activeElement !== $("ph")) $("ph").value = S.ph;
   }
-  function tgPhone() {
-    try { tg.requestContact(function (ok) { S.pc = !!ok; if (!ok) toast("没有提供号码，也可以手动填写"); renderPh(); }); }
-    catch (e) { toast("当前 Telegram 版本不支持，请手动填写"); }
+  // v4: who the customer is, for the pre-filled 客服 text when no phone is given. Only a menu / inline launch has the
+  // (signed) user in initDataUnsafe; a keyboard launch has none -- there the message itself comes from the customer.
+  function who() {
+    var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+    if (!u || typeof u.id !== "number" || !isFinite(u.id)) return "";
+    if (/^[A-Za-z0-9_]{5,32}$/.test(u.username || "")) return "@" + u.username;
+    var nm = one([u.first_name, u.last_name].filter(function (x) { return typeof x === "string" && x; }).join(" ")).slice(0, 40);
+    return (nm || "客户") + " tg://user?id=" + Math.floor(u.id);
   }
 
   function renderPay() {
@@ -306,7 +385,8 @@
     L.push("商品合计约：RM " + money(t.sub) + " · 运费待确认");
     if (S.opts.location && S.addr.trim()) L.push("地址：" + S.addr.trim());
     if (S.opts.location && S.loc) L.push("定位：" + mapLink(S.loc));
-    if (S.opts.phone && S.ph.trim()) L.push("电话：" + S.ph.trim()); else if (S.pc) L.push("电话：已通过 Telegram 提供给机器人");
+    if (S.opts.phone && S.ph.trim()) L.push("电话：" + S.ph.trim());
+    else L.push("电话：未填 · 客户：" + (who() || "就是发这条消息的我，请直接在这里联系我"));
     if (S.opts.pay && S.pay) L.push("付款：货到付款 · " + payLabel(S.pay));
     if (S.note.trim()) L.push("备注：" + S.note.trim());
     var s = L.join("\n"); return s.length > PREFILL_MAX ? s.slice(0, PREFILL_MAX - 1) + "…" : s;
@@ -342,6 +422,8 @@
   function boot(data) {
     S.data = data; S.opts = data.opts && typeof data.opts === "object" ? data.opts : {};
     data.items.forEach(function (it) { S.byKey[it.k] = it; });
+    setupView(data);
+    if (S.cat !== "all" && !curGroup()) S.cat = "all";
     load(); renderChips(); renderList(); renderBar();
     if (tg && !KB_LAUNCH) $("mode").hidden = false;   // opened from the menu button: say what 提交 will do
     var u = (data.updated_at || "").replace("T", " ").slice(5, 16);
@@ -350,12 +432,13 @@
     $("note").oninput = function (e) { S.note = e.target.value.replace(/[\r\n]/g, " ").slice(0, S.data.limits.note); $("notec").textContent = S.note.length; save(); };
     $("addr").oninput = function (e) { S.addr = one(e.target.value).slice(0, ADDR_MAX); save(); };
     $("ph").oninput = function (e) { S.ph = e.target.value.slice(0, 23); save(); };
-    $("loc").onclick = locate; $("tgph").onclick = tgPhone;
+    $("loc").onclick = locate;
     $("go").onclick = function () { showTab(S.tab === "cart" ? "shop" : "cart"); };
     document.querySelectorAll(".tabs button").forEach(function (b) { b.onclick = function () { showTab(b.dataset.tab); }; });
     $("submit").onclick = submit; $("sheet-bg").onclick = closeSheet;
     $("clear").onclick = function () { S.cart = {}; save(); renderCart(); renderBar(); };
     if (tg) { try { tg.BackButton.onClick(function () { if (S.sheetKey) closeSheet(); else showTab("shop"); }); } catch (e) {} }
+    var rw = 0; window.addEventListener("resize", function () { if (innerWidth !== rw) { rw = innerWidth; renderChips(); } });
     S.render = function () { save(); renderBar(); if (S.tab === "cart") renderCart(); else renderList(); };
     S.gotLoc = gotLoc; S.openSheet = openSheet; S.summary = summary; S.payload = payload;
     window.__shop = S;   // for the offline demo / screenshots

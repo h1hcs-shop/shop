@@ -6,7 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <title>下单入口</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <header class="hd">
@@ -39,10 +39,9 @@
         <div id="loc-st" class="hint"></div>
         <input id="addr" type="text" maxlength="120" placeholder="公寓/楼盘、座号、楼层、门牌（可直接填写或修改）" autocomplete="street-address">
         <div id="osm" class="hint" hidden>地址数据 © OpenStreetMap 贡献者</div></div>
-      <div class="fld" id="ph-box" hidden><div class="lbl">联系电话</div>
-        <button id="tgph" class="ghost">📱 用 Telegram 提供我的号码</button>
-        <div id="ph-st" class="hint"></div>
-        <input id="ph" type="tel" maxlength="23" placeholder="或手动填写，如 +60 12-345 6789" autocomplete="tel"></div>
+      <div class="fld" id="ph-box" hidden><div class="lbl">联系电话 <span class="req">（选填）</span></div>
+        <input id="ph" type="tel" maxlength="23" placeholder="如 +60 12-345 6789" autocomplete="tel">
+        <div class="hint">不填也可以：客服会直接在 Telegram 上联系你。</div></div>
       <div class="fld" id="pay-box" hidden><div class="lbl">付款方式：货到付款 <span class="req">（必选）</span></div>
         <div id="pay" class="seg pay"></div>
         <div class="hint">送到时再付款，选一种你方便的方式。机器人不收款，具体由客服和你确认。</div></div>
@@ -62,6 +61,6 @@
 </footer>
 <div id="sheet" class="sheet" hidden><div class="sheet-bg" id="sheet-bg"></div><div class="sheet-card" id="sheet-card"></div></div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
