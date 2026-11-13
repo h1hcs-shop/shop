@@ -149,7 +149,10 @@ class TGoods(unittest.TestCase):
         names = [i["n"] for i in d["items"]]
         for n in ("虚构电子烟", "虚构保健品", "虚构一次性烟弹", "虚构新品类商品"):
             self.assertIn(n, names)
-        self.assertEqual([i["c"] for i in d["items"]], sorted([i["c"] for i in d["items"]], key=ids.index))   # grouped in order
+        # v4: items follow the view groups (香烟 / 酒水 / 重振雄风 / 槟榔 first, Kimi 04:10), each group contiguous
+        gorder = [c for g in d["view"]["groups"] for c in g["cats"]]
+        self.assertEqual([i["c"] for i in d["items"]], sorted([i["c"] for i in d["items"]], key=gorder.index))
+        self.assertEqual([g["id"] for g in d["view"]["groups"]][:4], ["cig", "liquor", "adult", "betel"])
         sh = next(i for i in d["items"] if i["n"] == "虚构洗发水")
         self.assertEqual((sh["p"], sh["c"], sh["img"]), (15.9, "care", "https://h1hcs.com/products/care/9.webp"))
         raw = open(self.out, encoding="utf-8").read()
@@ -215,6 +218,100 @@ class TScan(unittest.TestCase):
         self.assertIn("storefront_agent_id", self.scan(self.img("https://h1hcs.com/api/erp?agent=" + "agent_" + "0123abcd&productId=%s" % self.UUID_DIGITS)))
         # the UUID exemption is for site/catalog.json only
         self.assertIn("long_numeric_id", self.scan(self.img("https://h1hcs.com/api/erp?productId=%s&w=1" % self.UUID_DIGITS), rel="site/other.json"))
+
+class TView(unittest.TestCase):
+    """shop-miniapp-v4 (Kimi 11-14 04:10): merged 酒水, 重振雄风 after 酒水, brand + price order, 整箱 inside the single item.
+    FICTIONAL products only."""
+    P = [prod("虚构利群 软", "香烟", 18000), prod("虚构中华 硬", "香烟", 32000), prod("虚构利群 铂金", "香烟", 50000),
+         prod("虚构中华 软", "香烟", 50000), prod("虚构杂牌烟", "香烟", 90000),
+         prod("虚构青岛啤酒 330ML", "酒水", 700, unit="瓶"), prod("虚构青岛啤酒 330ML（整箱）", "酒水", 13000, unit="箱"),
+         prod("虚构茅台 53度", "酒水", 168000, unit="瓶"), prod("虚构轩尼诗XO", "酒水", 120000, unit="瓶"),
+         prod("虚构奔富 750ML", "酒水", 49000, unit="瓶"), prod("虚构强爽柠檬", "酒水", 1800, unit="瓶"),
+         prod("虚构100和成天下槟榔", "槟榔", 8500, unit="包"), prod("虚构200和成天下槟榔", "槟榔", 17000, unit="包"),
+         prod("虚构50新发槟榔", "槟榔", 3500, unit="包"),
+         prod("虚构可乐330ml", "饮料乳品", 300, unit="罐", spec="330ml", img="/p/cola.webp"),
+         prod("虚构可乐330ml（整箱）", "饮料乳品", 6800, unit="箱", spec="24罐", img="/p/cola.webp"),
+         prod("虚构矿泉水", "饮料乳品", 100, unit="瓶"), prod("虚构矿泉水×12瓶", "饮料乳品", 1100, unit="箱"),
+         prod("虚构椰汁1L", "饮料乳品", 1500, unit="盒"), prod("虚构只有整箱的水（整箱）", "饮料乳品", 4500, unit="箱"),
+         prod("虚构保健品", "重振雄风", 9900, unit="盒"), prod("虚构饼干", "休闲零食", 500, unit="包"),
+         prod("虚构饼干（整箱）", "方便速食", 4000, unit="箱")]       # other category: NOT a pack of 虚构饼干
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(); self.out = os.path.join(self.d, "catalog.json")
+
+    def build(self, products=None, view=True):
+        old = B.VIEW; B.VIEW = view
+        try:
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = B.build(get_json=fake_store(products or self.P, per_page=50)[0], out=self.out, agent=AG, sleep=lambda s: None)
+        finally:
+            B.VIEW = old
+        self.assertEqual(rc, 0)
+        return json.load(open(self.out, encoding="utf-8"))
+
+    def names(self, d, cats, heads_only=True):
+        hidden = {i for p in d["view"]["packs"] for i in p[1:]}
+        return [it["n"] for i, it in enumerate(d["items"]) if it["c"] in cats and not (heads_only and i in hidden)]
+
+    def test_groups_chips(self):
+        d = self.build()
+        g = d["view"]["groups"]
+        self.assertEqual([x["id"] for x in g], ["cig", "liquor", "adult", "betel", "snack", "drinkm", "instant"])
+        liq = g[1]
+        self.assertEqual((liq["name"], liq["cats"], liq.get("sub")), ("酒水", ["baijiu", "spirits", "wine", "beer", "drink"], True))
+        self.assertEqual({x["id"]: x["short"] for x in g}["drinkm"], "饮料")                 # short chip labels
+        self.assertEqual({x["id"]: x["name"] for x in g}["drinkm"], "饮料乳品")
+        for it in d["items"]:
+            self.assertEqual(set(it), B.ITEM_KEYS)                                            # item fields unchanged
+
+    def test_cigarettes_brand_then_price(self):
+        d = self.build()
+        # 杂牌 900 first (its own brand group), then 中华 (top 500, 2 items) before 利群 (top 500, 2 items) by name tie-break
+        self.assertEqual(self.names(d, ["cig"]), ["虚构杂牌烟", "虚构中华 软", "虚构中华 硬", "虚构利群 铂金", "虚构利群 软"])
+
+    def test_liquor_order_baijiu_spirits_wine_beer_other(self):
+        d = self.build()
+        self.assertEqual(self.names(d, ["baijiu", "spirits", "wine", "beer", "drink"]),
+                         ["虚构茅台 53度", "虚构轩尼诗XO", "虚构奔富 750ML", "虚构青岛啤酒 330ML", "虚构强爽柠檬"])
+        self.assertEqual(self.names(d, ["betel"]), ["虚构200和成天下槟榔", "虚构100和成天下槟榔", "虚构50新发槟榔"])
+
+    def test_packs_inside_single_and_price_order(self):
+        d = self.build()
+        it = d["items"]
+        packs = {it[p[0]]["n"]: [it[i]["n"] for i in p[1:]] for p in d["view"]["packs"]}
+        self.assertEqual(packs, {"虚构青岛啤酒 330ML": ["虚构青岛啤酒 330ML（整箱）"], "虚构可乐330ml": ["虚构可乐330ml（整箱）"],
+                                 "虚构矿泉水": ["虚构矿泉水×12瓶"]})
+        for p in d["view"]["packs"]:
+            self.assertEqual(p[1:], list(range(p[0] + 1, p[0] + len(p))))      # packs right after their single
+            self.assertTrue(all(it[i]["c"] == it[p[0]]["c"] for i in p))
+        # list = singles only, price high -> low; a pack with no single (and a 箱 of another category) stays a normal item,
+        # after the single items
+        self.assertEqual(self.names(d, ["drinkm"]), ["虚构椰汁1L", "虚构可乐330ml", "虚构矿泉水", "虚构只有整箱的水（整箱）"])
+        self.assertIn("虚构饼干（整箱）", self.names(d, ["instant"]))
+        raw = json.dumps(d["view"])
+        for x in it:
+            self.assertNotIn(x["k"], raw)              # the view never repeats product codes (secret scan / size)
+
+    def test_rollback_view_off(self):
+        d = self.build(view=False)
+        self.assertNotIn("view", d)
+        self.assertEqual(len(d["items"]), len(self.P))
+        d2 = self.build()
+        self.assertEqual(sorted(i["k"] for i in d["items"]), sorted(i["k"] for i in d2["items"]))   # same products, reordered
+
+    def test_duplicate_single_names_prefer_same_image(self):
+        import catalog_view as V
+        doc = {"cats": [{"id": "drinkm", "name": "🥤 饮料乳品"}], "items": [
+            {"k": "a" * 10, "n": "虚构凉茶（罐）", "u": "罐", "s": "罐", "c": "drinkm", "p": 3.5, "o": None, "img": "https://h1hcs.com/a.webp"},
+            {"k": "b" * 10, "n": "虚构凉茶（罐）", "u": "罐", "s": "310ml", "c": "drinkm", "p": 3.5, "o": None, "img": "https://h1hcs.com/b.webp"},
+            {"k": "c" * 10, "n": "虚构凉茶（罐）（整箱）", "u": "箱", "s": "24罐", "c": "drinkm", "p": 79.0, "o": None, "img": "https://h1hcs.com/b.webp"}]}
+        V.build_view(doc)
+        p = doc["view"]["packs"]
+        self.assertEqual(len(p), 1); self.assertEqual(doc["items"][p[0][0]]["k"], "b" * 10)
+        self.assertEqual(V.brand("100张新发槟榔（八方来财）"), "新发"); self.assertEqual(V.brand("1916 细支"), "黄鹤楼")
+        self.assertIsNone(V.pack_base({"n": "虚构天地壹号苹果醋（箱）", "u": "瓶"}))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

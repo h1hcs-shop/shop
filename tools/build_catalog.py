@@ -11,6 +11,7 @@ import json, logging, os, re, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "vendor"))
 import catalog_live, shop_cart, shop_miniapp
+import catalog_view
 
 OUT = os.path.join(os.path.dirname(HERE), "site", "catalog.json")
 # same order as the bot's 客服 list (index 0 / 1). "user" = the PUBLIC usernames the bot already shows in its 客服 buttons;
@@ -35,6 +36,10 @@ GOODS = True
 # One-step removal of whole mall categories (mall names as shown in the storefront), e.g. ["电子烟"] or ["电子烟", "重振雄风"].
 # Push -> the next hourly build drops them. Keep the bot's config.json "shop_app_cat_blacklist" the same.
 CAT_BLACKLIST = []
+# shop-miniapp-v4 (Kimi 11-14 04:10): display view = 香烟 / 酒水(白酒→洋酒→葡萄酒→啤酒) / 重振雄风 / 槟榔 first, brands together,
+# price high -> low, 整箱 shown inside its single item (tools/catalog_view.py). Rollback = VIEW False and push: the next build
+# writes the v3 order without "view" and the page falls back to the v3 layout.
+VIEW = True
 ITEM_KEYS = {"k", "n", "u", "s", "c", "p", "o", "img"}
 MIN_KEEP = 0.5          # refuse a result with < 50% of the previous items (storefront hiccup)
 
@@ -79,6 +84,8 @@ def build(get_json=None, out=OUT, agent=None, sleep=None):
     for it in doc["items"]:
         if set(it) != ITEM_KEYS:
             print("unexpected item fields"); return 1
+    if VIEW:
+        catalog_view.build_view(doc)
     prev = None
     try:
         prev = json.load(open(out, encoding="utf-8"))
