@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<title>烟酒商城</title>
+<title>下单入口</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <header class="hd">
   <div class="logo">🛒</div>
-  <div><div class="ttl">烟酒商城</div><div class="sub">香烟 · 酒水 · 槟榔　吉隆坡、新山同价　货到付款</div></div>
+  <div><div class="ttl">下单入口</div><div class="sub">烟酒槟榔 · 零食饮料 · 日用百货　货到付款</div></div>
 </header>
 <nav class="tabs">
   <button data-tab="shop" class="on">选购商品</button>
@@ -20,24 +20,37 @@
 <main>
   <section id="v-shop">
     <div id="chips" class="chips"></div>
-    <label class="search"><span>搜索</span><input id="q" type="search" maxlength="20" placeholder="输入商品名称，如 中华 / 茅台" autocomplete="off"></label>
+    <label class="search"><span>搜索</span><input id="q" type="search" maxlength="20" placeholder="输入商品名称，如 中华 / 茅台 / 方便面" autocomplete="off"></label>
     <div class="sec"><h2 id="sec-t">全部</h2><span id="sec-n"></span></div>
-    <div id="list"></div>
+    <div id="list" class="grid"></div>
     <p id="upd" class="foot"></p>
   </section>
   <section id="v-cart" hidden>
+    <div id="mode" class="mode" hidden>从菜单打开：提交后直接打开客服对话（订单已填好）。想在机器人里留订单号，请用机器人底部键盘「🛍 下单入口」打开。</div>
     <div id="lines"></div>
     <div id="checkout">
-      <div class="sum"><span>商品合计</span><b id="sub">RM 0</b></div>
+      <div class="sum"><span>商品合计（估算）</span><b id="sub">RM 0</b></div>
       <div class="kv"><span>配送费用</span><span>待客服确认</span></div>
       <div class="kv"><span>订单总额</span><span>待确认</span></div>
       <div class="fld"><div class="lbl">配送城市</div><div id="city" class="seg"></div><div class="hint">新山按吉隆坡价格，同价</div></div>
       <div class="fld"><div class="lbl">选择客服</div><div id="cs" class="seg"></div></div>
+      <div class="fld" id="addr-box" hidden><div class="lbl">送货地址</div>
+        <button id="loc" class="ghost">📍 定位我的位置</button>
+        <div id="loc-st" class="hint"></div>
+        <input id="addr" type="text" maxlength="120" placeholder="公寓/楼盘、座号、楼层、门牌（可直接填写或修改）" autocomplete="street-address">
+        <div id="osm" class="hint" hidden>地址数据 © OpenStreetMap 贡献者</div></div>
+      <div class="fld" id="ph-box" hidden><div class="lbl">联系电话</div>
+        <button id="tgph" class="ghost">📱 用 Telegram 提供我的号码</button>
+        <div id="ph-st" class="hint"></div>
+        <input id="ph" type="tel" maxlength="23" placeholder="或手动填写，如 +60 12-345 6789" autocomplete="tel"></div>
+      <div class="fld" id="pay-box" hidden><div class="lbl">付款方式：货到付款 <span class="req">（必选）</span></div>
+        <div id="pay" class="seg pay"></div>
+        <div class="hint">送到时再付款，选一种你方便的方式。机器人不收款，具体由客服和你确认。</div></div>
       <div class="fld"><div class="lbl">订单备注（选填，单行）</div>
         <input id="note" type="text" maxlength="100" placeholder="有需要特别说明的内容，可写在这里"><div class="hint"><span id="notec">0</span>/100</div></div>
-      <button id="submit" class="primary">生成订单并联系客服</button>
+      <button id="submit" class="primary">提交订单并联系客服</button>
       <button id="clear" class="link">清空购物车</button>
-      <p class="foot">不显示库存，以客服确认为准。机器人里不收款；运费、总额与送达时间由客服确认。不需要填写姓名、电话、地址。</p>
+      <p id="foot2" class="foot">不显示库存，以客服确认为准。机器人里不收款；价格以机器人订单为准，运费、总额与送达时间由客服确认。</p>
     </div>
     <div id="empty" class="empty" hidden>购物车是空的，去「选购商品」挑选吧。</div>
   </section>
@@ -47,7 +60,8 @@
   <div><b id="tot">RM 0</b><div id="cnt" class="sub2">已选 0 款，共 0 件</div></div>
   <button id="go" class="primary">购物车（0）</button>
 </footer>
+<div id="sheet" class="sheet" hidden><div class="sheet-bg" id="sheet-bg"></div><div class="sheet-card" id="sheet-card"></div></div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=1"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
