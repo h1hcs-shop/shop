@@ -1,0 +1,76 @@
+name: catalog-and-pages
+
+on:
+  schedule:
+    - cron: "23 * * * *"          # hourly (UTC; GitHub may delay scheduled runs by a few minutes)
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ["site/**", "tools/**", ".github/workflows/**"]
+
+permissions:
+  contents: write                 # commit site/catalog.json when it changed
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: catalog-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      deploy: ${{ steps.commit.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install requests
+        run: python -m pip install --disable-pip-version-check -q "requests>=2.32,<3"
+      - name: Offline tests + secret scan
+        run: |
+          python tools/test_build_catalog.py
+          python tools/secret_scan.py
+      - name: Build catalog.json (KL, public storefront)
+        env:
+          STOREFRONT_AGENT: ${{ secrets.STOREFRONT_AGENT }}
+        run: python tools/build_catalog.py
+      - name: Secret scan of the result
+        run: python tools/secret_scan.py
+      - name: Commit only if changed
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          deploy=false
+          if [ "${{ github.event_name }}" != "schedule" ]; then deploy=true; fi
+          git add site/catalog.json
+          if ! git diff --cached --quiet; then
+            git commit -q -m "catalog: update"
+            git push -q
+            deploy=true
+          elif [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt 2592000 ]; then
+            # public repos disable scheduled workflows after 60 days without activity: keep-alive commit after 30 idle days
+            date -u +%FT%TZ > .github/keepalive
+            git add .github/keepalive && git commit -q -m "keepalive" && git push -q
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-pages-artifact@v5
+        if: steps.commit.outputs.deploy == 'true'
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
