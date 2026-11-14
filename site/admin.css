@@ -34,3 +34,22 @@
 .sheet-card{max-height:88vh;overflow:auto}
 .reset{display:block;margin:12px auto 0;color:var(--hint);font-size:13px;text-decoration:underline}
 .abtn{display:flex;align-items:center;gap:8px;flex-shrink:0}.abtn button{white-space:nowrap}.abtn #save{min-width:76px}
+/* shop-admin-v1.1: 「排序」 mode = 5-per-row drag grid (fits 5 across from 320px; 390px iPhone 15 = ~68px tiles) */
+.amode{display:flex;gap:6px;margin:0 0 10px}.amode button{flex:1;padding:8px 4px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;white-space:nowrap}
+.amode button.on{background:var(--sec);border-color:var(--acc);color:var(--acc);font-weight:700}
+#qbox[hidden],#flt[hidden]{display:none}
+.agrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
+.atile{position:relative;min-width:0;padding:4px 3px 5px;border:1px solid var(--line);border-radius:10px;background:var(--bg);text-align:center;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:grab;transition:transform .12s,box-shadow .12s}
+.atile .img{width:100%;height:auto;aspect-ratio:1;font-size:22px;border-radius:7px}
+.atile img{pointer-events:none;-webkit-user-drag:none}
+.atile .no{position:absolute;left:2px;top:2px;z-index:1;min-width:17px;padding:0 3px;border-radius:8px;background:rgba(20,33,43,.62);color:#fff;font-size:10px;line-height:15px;font-variant-numeric:tabular-nums}
+.atile .tn{margin-top:3px;font-size:11px;line-height:1.25;height:2.5em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all}
+.atile .tp{font-size:10.5px;color:var(--price);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atile .tp.chp{color:#b06b00;font-weight:700}
+.atile .toff{position:absolute;right:2px;top:2px;z-index:1;font-style:normal;font-size:9.5px;line-height:15px;padding:0 3px;border-radius:4px;background:#e5484d;color:#fff}
+.atile.off .img,.atile.off .tn,.atile.off .tp{opacity:.45}
+.atile.press{transform:scale(.94);box-shadow:0 0 0 2px var(--acc)}
+.atile.ph{border:2px dashed var(--acc);background:var(--sec);cursor:default}
+.atile.ph>*{visibility:hidden}
+.atile.float{position:fixed;left:0;top:0;z-index:50;margin:0;pointer-events:none;box-shadow:0 10px 24px rgba(0,0,0,.28);border-color:var(--acc);opacity:.95;transition:none}
+body.sorting{overscroll-behavior:none}

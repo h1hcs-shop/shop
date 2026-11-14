@@ -3,6 +3,9 @@
    owner's changes to the bot with Telegram.WebApp.sendData (only possible from the bot's keyboard key, which the bot shows
    to the owner alone). The bot accepts the save ONLY from the owner's own account (message.from) in the private chat, so
    this page grants nothing by itself: anyone else who opens it can look but never change anything. No personal data. */
+/* shop-admin-v1.1 (Kimi 11-14 18:07「排序的拖动方式界面也要横的5个一排，方便我拖动。」): a 「排序」 mode that shows the current
+   category as a 5-per-row grid; long-press (touch) / press-and-move (mouse) a tile and drag it anywhere. Same data model and
+   the same save payload / overrides.json v1 as v1, so the bot and app.js need no change. */
 (function () {
   "use strict";
   var tg = (window.Telegram && window.Telegram.WebApp) || null;
@@ -11,7 +14,7 @@
   var MANAGED = {}; CATS.forEach(function (c) { MANAGED[c[0]] = c; });
   var MAX_BYTES = 4096, IMG_HOSTS = ["h1hcs.com"], PRICE_RX = /^\d{1,5}(\.\d{1,2})?$/, own = Object.prototype.hasOwnProperty;
   var S = {cat: "cig", q: "", flt: "all", byKey: {}, packs: {}, packOf: {}, heads: {}, def: {}, rev: null, botRev: null,
-           base: {hide: {}, price: {}, ord: {}}, hide: {}, price: {}, ord: {}, ordSt: {}, sheet: null};
+           base: {hide: {}, price: {}, ord: {}}, hide: {}, price: {}, ord: {}, ordSt: {}, sheet: null, mode: "list"};
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -150,16 +153,54 @@
     var c = changes(); if (c.hide.concat(c.show).indexOf(k) >= 0 || own.call(c.price, k)) r.classList.add("chg");
     return r;
   }
+  function tile(k) {
+    var it = S.byKey[k], t = el("div", "atile" + (S.hide[k] ? " off" : "")); t.dataset.k = k;
+    var im = imgBox(it); [].forEach.call(im.querySelectorAll("img"), function (x) { x.draggable = false; });
+    t.append(el("span", "no", String(S.heads[S.cat].indexOf(k) + 1)), im, el("div", "tn", it.n));
+    var pr = el("div", "tp" + (own.call(S.price, k) ? " chp" : ""), "RM " + money(priceOf(k))); t.append(pr);
+    if (S.hide[k]) t.append(el("i", "toff", "已下架"));
+    t.addEventListener("pointerdown", function (e) { tilePress(t, e); });
+    t.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    return t;
+  }
+  function renderMode() {
+    var m = $("amode"); m.textContent = "";
+    [["list", "☰ 列表：改价 / 上下架"], ["sort", "▦ 排序：5 个一排拖动"]].forEach(function (x) {
+      var b = el("button", S.mode === x[0] ? "on" : "", x[1]); b.onclick = function () { setMode(x[0]); }; m.append(b);
+    });
+    var sort = S.mode === "sort"; document.body.classList.toggle("sorting", sort);
+    $("qbox").hidden = sort; $("flt").hidden = sort;
+  }
+  function setMode(m) {
+    if (m === S.mode) return;
+    S.mode = m === "sort" ? "sort" : "list";
+    if (S.mode === "sort" && !canDrag()) { S.q = ""; $("q").value = ""; S.flt = "all"; toast("已回到「全部」，可以拖动排序"); }
+    haptic(); render(); window.scrollTo(0, 0);
+  }
   function renderList() {
     var l = $("alist"); l.textContent = "";
+    if (S.mode === "sort") return renderGrid(l);
     var ks = visibleKeys(), name = MANAGED[S.cat][1];
     $("sec-t").textContent = S.q ? name + " · 搜索「" + S.q + "」" : name;
     $("sec-n").textContent = ks.length + " 款" + (S.ordSt[S.cat] !== "same" ? " · 顺序已改" : S.base.ord[S.cat] ? " · 自定义顺序" : "");
-    $("tip").textContent = canDrag() ? "按住左边「≡」上下拖动排序；点商品改价格、置顶 / 上移 / 下移；右边按钮上架 / 下架。" : "筛选中：可以改价格和上架下架；要拖动排序请回到「全部」。";
+    $("tip").textContent = canDrag() ? "按住左边「≡」上下拖动排序（点上面「▦ 排序」可 5 个一排拖动）；点商品改价格、置顶 / 上移 / 下移；右边按钮上架 / 下架。" : "筛选中：可以改价格和上架下架；要拖动排序请回到「全部」。";
     var frag = document.createDocumentFragment();
     ks.forEach(function (k, i) { frag.append(row(k, i)); });
     l.append(frag);
     if (!ks.length) l.append(el("div", "empty", "没有符合条件的商品"));
+    resetBtn(l);
+  }
+  function renderGrid(l) {
+    var ks = S.heads[S.cat], name = MANAGED[S.cat][1];
+    $("sec-t").textContent = name + " · 排序";
+    $("sec-n").textContent = ks.length + " 款" + (S.ordSt[S.cat] !== "same" ? " · 顺序已改" : S.base.ord[S.cat] ? " · 自定义顺序" : "");
+    $("tip").textContent = "按住商品半秒，等它浮起来后拖到想要的位置松手；拖到屏幕上下边缘会自动滚动。点一下商品可以改价格、置顶或移到第几位。";
+    var g = el("div", "agrid"), frag = document.createDocumentFragment();
+    ks.forEach(function (k) { frag.append(tile(k)); }); g.append(frag); l.append(g);
+    if (!ks.length) l.append(el("div", "empty", "这个分类没有商品"));
+    resetBtn(l);
+  }
+  function resetBtn(l) {
     if (canDrag() && (S.base.ord[S.cat] || S.ordSt[S.cat] === "custom")) {
       var rs = el("button", "reset", "恢复默认顺序（" + (S.cat === "cig" ? "与华润万家商城一致" : "按价格从高到低") + "）");
       rs.onclick = function () { S.heads[S.cat] = S.def[S.cat].slice(); S.ordSt[S.cat] = S.base.ord[S.cat] ? "reset" : "same"; render(); toast("已恢复默认顺序，保存后生效"); };
@@ -173,7 +214,7 @@
     $("save").disabled = !c.n || !KB_LAUNCH; $("save").textContent = c.n ? "保存（" + c.n + "）" : "保存";
     $("undo").hidden = !c.n;
   }
-  function render() { renderStatus(); renderChips(); renderFilter(); renderList(); renderBar(); if (S.sheet) renderSheet(); }
+  function render() { renderStatus(); renderChips(); renderMode(); renderFilter(); renderList(); renderBar(); if (S.sheet) renderSheet(); }
   function setHide(k, v) { if (v) S.hide[k] = true; else delete S.hide[k]; haptic(); render(); toast(v ? "已设为下架（保存后生效）" : "已设为上架（保存后生效）"); }
 
   /* ---------- drag to reorder (pointer events; works with touch) ---------- */
@@ -200,7 +241,66 @@
     }
     document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
   }
+  /* ---------- v1.1: 5-per-row grid drag (pointer events + a non-passive touchmove guard so iOS does not scroll) ----------
+     touch: hold still ~0.45 s, the tile lifts (haptic), then drag; moving earlier = normal page scroll. mouse/pen: press + move.
+     A floating copy follows the finger; a dashed placeholder shows where it will land; near the top / bottom edge the page scrolls. */
+  var G = null, LONG_MS = 450, SLOP = 10;
+  function tilePress(t, e) {
+    if (G || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if (!canDrag()) { toast("搜索或筛选时不能拖动，请先回到「全部」"); return; }
+    G = {t: t, k: t.dataset.k, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false, touch: e.pointerType === "touch", tm: 0, scr: 0, iv: 0};
+    if (G.touch) { G.tm = setTimeout(function () { if (G && !G.on) gStart(); }, LONG_MS); t.classList.add("press"); }
+    document.addEventListener("pointermove", gMove, {passive: false}); document.addEventListener("pointerup", gUp); document.addEventListener("pointercancel", gCancel);
+  }
+  function gStart() {
+    var t = G.t, b = t.getBoundingClientRect(); G.on = true; t.classList.remove("press");
+    var f = t.cloneNode(true); f.className = "atile float"; f.style.width = b.width + "px"; f.style.height = b.height + "px";
+    G.dx = G.x - b.left; G.dy = G.y - b.top; G.f = f; document.body.append(f);
+    t.classList.add("ph"); G.ph = t;   // the touched tile itself becomes the placeholder: it must stay in the page, or iOS/Chrome stop sending its touches
+    gFloat(); haptic("medium");
+    G.iv = setInterval(function () { if (G && G.scr) { window.scrollBy(0, G.scr); gPlace(); } }, 30);
+  }
+  function gFloat() { G.f.style.transform = "translate(" + (G.x - G.dx) + "px," + (G.y - G.dy) + "px) scale(1.08)"; }
+  function gPlace() {
+    var ph = G.ph, tiles = [].slice.call(ph.parentNode.querySelectorAll(".atile:not(.ph)"));
+    for (var i = 0; i < tiles.length; i++) {
+      var b = tiles[i].getBoundingClientRect();
+      if (G.x >= b.left && G.x <= b.right && G.y >= b.top && G.y <= b.bottom) {
+        var after = G.x > b.left + b.width / 2, ref = after ? tiles[i].nextSibling : tiles[i];
+        if (ref !== ph && (after ? tiles[i].nextSibling !== ph : tiles[i].previousSibling !== ph)) { tiles[i].parentNode.insertBefore(ph, ref); haptic("light"); }
+        return;
+      }
+    }
+  }
+  function gMove(e) {
+    if (!G || e.pointerId !== G.id) return;
+    G.x = e.clientX; G.y = e.clientY;
+    if (!G.on) {
+      var far = Math.abs(G.x - G.x0) > SLOP || Math.abs(G.y - G.y0) > SLOP;
+      if (G.touch) { if (far) gEnd(false); return; }          // finger moved before the long-press: it is a scroll
+      if (!far) return; gStart();
+    }
+    e.preventDefault(); gFloat(); gPlace();
+    G.scr = G.y < 110 ? -14 : G.y > innerHeight - 120 ? 14 : 0;
+  }
+  function gUp(e) { if (G && e.pointerId === G.id) gEnd(true); }
+  function gCancel(e) { if (G && e.pointerId === G.id) gEnd(G.on); }
+  function gEnd(drop) {
+    var g = G; G = null; clearTimeout(g.tm); clearInterval(g.iv); g.t.classList.remove("press");
+    document.removeEventListener("pointermove", gMove, {passive: false}); document.removeEventListener("pointerup", gUp); document.removeEventListener("pointercancel", gCancel);
+    if (!g.on) {                                                  // plain tap (no drag): open the detail sheet
+      if (drop && Math.abs(g.x - g.x0) <= SLOP && Math.abs(g.y - g.y0) <= SLOP) openSheet(g.k);
+      return;
+    }
+    g.f.remove(); g.t.classList.remove("ph");
+    var keys = [].slice.call($("alist").querySelectorAll(".atile")).map(function (x) { return x.dataset.k; });
+    if (!sameArr(keys, S.heads[S.cat])) { S.heads[S.cat] = keys; S.ordSt[S.cat] = "custom"; toast("已移到第 " + (keys.indexOf(g.k) + 1) + " 位（保存后生效）"); }
+    G = null; render();
+  }
+  // iOS / Android: once a drag has started, block the page scroll. Non-passive so preventDefault works.
+  document.addEventListener("touchmove", function (e) { if (G && G.on) e.preventDefault(); }, {passive: false});
   S.dragTo = function (k, i) { moveTo(k, i); render(); };     // demo / tests
+  S.setMode = function (m) { setMode(m); };                   // demo / tests
 
   /* ---------- detail sheet: price, 上架/下架, position, 整箱 ---------- */
   function openSheet(k) { S.sheet = k; renderSheet(); $("sheet").hidden = false; try { tg && tg.BackButton.show(); } catch (e) {} }
