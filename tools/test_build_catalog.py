@@ -317,5 +317,45 @@ class TView(unittest.TestCase):
         self.assertIsNone(V.pack_base({"n": "虚构天地壹号苹果醋（箱）", "u": "瓶"}))
 
 
+D10, D12 = "01234" + "56789", "123456" + "789012"
+
+
+class TestOverridesV1(unittest.TestCase):
+    """shop-admin-v1: site/overrides.json (public copy of the owner's 商品管理 overrides) + the push-only republish."""
+    GOOD = {"v": 1, "rev": 3, "at": "2026-11-14T15:30:00+08:00", "hide": [D10, "abcdef0123"],
+            "price": {D10: 660, "a1b2c3d4e5": 59.9}, "order": {"cig": ["a1b2c3d4e5", D10], "baijiu": []}}
+
+    def test_check(self):
+        import check_overrides as C
+        self.assertIsNone(C.check(self.GOOD))
+        bad = [dict(self.GOOD, extra=1), dict(self.GOOD, v=2), dict(self.GOOD, rev=-1), dict(self.GOOD, rev=True),
+               dict(self.GOOD, hide=["ABCDEF0123"]), dict(self.GOOD, hide=["虚构"]), dict(self.GOOD, price={D10: 0}),
+               dict(self.GOOD, price={D10: True}), dict(self.GOOD, order={"betel": []}),
+               dict(self.GOOD, order={"cig": [D10, D10]}), dict(self.GOOD, at="x" * 41)]
+        for b in bad:
+            self.assertIsNotNone(C.check(b), b)
+        d = tempfile.mkdtemp(); p = os.path.join(d, "o.json")
+        self.assertEqual(C.main(p), 0)                                   # missing = no overrides
+        open(p, "w").write("{bad"); self.assertEqual(C.main(p), 1)
+        json.dump(self.GOOD, open(p, "w")); self.assertEqual(C.main(p), 0)
+        self.assertEqual(C.main(os.path.join(os.path.dirname(HERE), "site", "overrides.json")), 0)   # the committed file
+
+    def test_secret_scan_neutralises_only_quoted_10_digit_codes(self):
+        import secret_scan as S
+        d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "site"))
+        p = os.path.join(d, "site", "overrides.json")
+        json.dump(self.GOOD, open(p, "w"), separators=(",", ":"))
+        self.assertEqual(S.scan(d), [])
+        json.dump(dict(self.GOOD, at=D12), open(p, "w"), separators=(",", ":"))
+        self.assertEqual([h[2] for h in S.scan(d)], ["long_numeric_id"])
+
+    def test_push_republishes_without_fetching(self):
+        y = open(os.path.join(os.path.dirname(HERE), ".github", "workflows", "catalog-pages.yml"), encoding="utf-8").read()
+        step = y[y.index("- name: Build catalog.json"):]; step = step[:step.index("run: python tools/build_catalog.py")]
+        self.assertIn("if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.sync)", step)
+        self.assertIn("python tools/check_overrides.py", y)
+        self.assertIn('if [ "${{ github.event_name }}" != "schedule" ]; then deploy=true; fi', y)    # push still deploys
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

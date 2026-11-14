@@ -34,7 +34,10 @@ _IMG = re.compile(r'"img":"(https://h1hcs\.com/[^"\\]*)"')
 SANITIZE = {"site/catalog.json": [
     lambda line: re.sub(r'"k":"\d{1,12}"', '"k":""', line),
     lambda line: _IMG.sub(lambda m: '"img":"%s"' % _UUID.sub("UUID", m.group(1)), line),
-]}
+],
+# shop-admin-v1: site/overrides.json holds the same public product codes (exactly 10 chars, quoted: list entries and price
+# keys) -> only quoted 10-digit strings are neutralised; prices / rev / anything else is still scanned.
+    "site/overrides.json": [lambda line: re.sub(r'"\d{10}"', '""', line)]}
 SKIP_DIRS = {".git", "__pycache__", ".cache"}
 TEXT = (".py", ".js", ".html", ".css", ".json", ".md", ".yml", ".yaml", ".txt", ".gitignore", "")
 
