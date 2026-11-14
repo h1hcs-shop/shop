@@ -2,9 +2,14 @@ name: catalog-and-pages
 
 on:
   schedule:
-    - cron: "23 * * * *"          # hourly (UTC; GitHub may delay scheduled runs by a few minutes)
-  workflow_dispatch: {}
-  push:
+    - cron: "23 * * * *"          # hourly (UTC; GitHub may delay scheduled runs by a few minutes). The separate 「停自动同步」 change deletes these 2 lines.
+  workflow_dispatch:              # = manual price sync (Actions -> Run workflow)
+    inputs:
+      sync:
+        description: "同步商城价格（false = 只重新发布页面）"
+        type: boolean
+        default: true
+  push:                           # shop-admin-v1: a push (e.g. site/overrides.json) only REPUBLISHES the page, it never fetches mall prices
     branches: [main]
     paths: ["site/**", "tools/**", ".github/workflows/**"]
 
@@ -34,8 +39,10 @@ jobs:
       - name: Offline tests + secret scan
         run: |
           python tools/test_build_catalog.py
+          python tools/check_overrides.py
           python tools/secret_scan.py
       - name: Build catalog.json (KL, public storefront)
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.sync)
         env:
           STOREFRONT_AGENT: ${{ secrets.STOREFRONT_AGENT }}
         run: python tools/build_catalog.py
@@ -51,12 +58,12 @@ jobs:
           git add site/catalog.json
           if ! git diff --cached --quiet; then
             git commit -q -m "catalog: update"
-            git push -q
+            git pull -q --rebase && git push -q   # shop-admin-v1: the bot may have pushed site/overrides.json meanwhile
             deploy=true
           elif [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt 2592000 ]; then
             # public repos disable scheduled workflows after 60 days without activity: keep-alive commit after 30 idle days
             date -u +%FT%TZ > .github/keepalive
-            git add .github/keepalive && git commit -q -m "keepalive" && git push -q
+            git add .github/keepalive && git commit -q -m "keepalive" && git pull -q --rebase && git push -q
           fi
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@v5
