@@ -1,4 +1,8 @@
-/* shop-miniapp-v4 (Kimi 11-14 04:10 / 04:13): catalog.json "view" = merged categories (香烟 / 酒水 / 重振雄风 / 槟榔 …, chips
+/* shop-admin-v1 (Kimi 11-14 15:05): the owner's 🛠 商品管理 overrides for 香烟 + 酒水 come from overrides.json (same site;
+   published from the bot's private master copy): 下架 items are removed, override prices replace the mall price (the bot
+   validates with the very same prices), a manual order replaces the default order inside its category. No overrides.json /
+   a bad one = the catalog exactly as before.
+   shop-miniapp-v4 (Kimi 11-14 04:10 / 04:13): catalog.json "view" = merged categories (香烟 / 酒水 / 重振雄风 / 槟榔 …, chips
    wrap to 2-3 rows), brand + price order (done by tools/catalog_view.py, the page keeps the item order) and 整箱 packs shown
    inside their single item's sheet (each keeps its own product code: the payload to the bot is unchanged). No
    「用 Telegram 提供号码」 any more: the phone is typed and optional; without it the pre-filled 客服 text names the customer.
@@ -39,6 +43,49 @@
     catch (e) { return /^(img|demo)\/[\w.\-]+$/.test(u || "") ? u : ""; }      // relative = locally hosted copies
   }
   function csUser(i) { var c = S.data.cs[i] || {}; return /^[A-Za-z0-9_]{5,32}$/.test(c.user || "") ? c.user : ""; }
+
+  /* ---------- shop-admin-v1: owner overrides (香烟 / 酒水 only) ---------- */
+  var MANAGED = {cig: 1, baijiu: 1, spirits: 1, wine: 1, beer: 1, drink: 1};
+  function applyOverrides(data, ov) {
+    if (!ov || ov.v !== 1 || typeof ov !== "object") return;
+    var hide = {}, price = {}, order = {}, own = Object.prototype.hasOwnProperty;
+    (Array.isArray(ov.hide) ? ov.hide : []).forEach(function (k) { if (typeof k === "string") hide[k] = 1; });
+    if (ov.price && typeof ov.price === "object") Object.keys(ov.price).forEach(function (k) {
+      var v = ov.price[k]; if (typeof v === "number" && isFinite(v) && v > 0 && v <= 99999) price[k] = Math.round(v * 100) / 100;
+    });
+    if (ov.order && typeof ov.order === "object") Object.keys(ov.order).forEach(function (c) {
+      if (!MANAGED[c] || !Array.isArray(ov.order[c])) return;
+      var m = {}; ov.order[c].forEach(function (k, i) { if (typeof k === "string" && !own.call(m, k)) m[k] = i; }); order[c] = m;
+    });
+    var items = data.items, packOf = {}, packsOf = {};
+    if (data.view && Array.isArray(data.view.packs)) data.view.packs.forEach(function (p) {
+      if (!Array.isArray(p) || p.length < 2 || !items[p[0]]) return;
+      var h = items[p[0]].k;
+      p.slice(1).forEach(function (i) { var x = items[i]; if (x && x.k !== h && !packOf[x.k]) { packOf[x.k] = h; (packsOf[h] = packsOf[h] || []).push(x.k); } });
+    });
+    items.forEach(function (it) { if (MANAGED[it.c] && own.call(price, it.k)) { it.p = price[it.k]; it.o = null; } });
+    var keep = items.filter(function (it) { return !(MANAGED[it.c] && hide[it.k]); }), vis = {};
+    keep.forEach(function (it) { vis[it.k] = 1; });
+    function headOf(k) { var h = packOf[k]; return h && vis[h] ? h : null; }     // a pack whose single is 下架 stands alone
+    var out = [], done = {};
+    keep.forEach(function (it) {
+      if (!order[it.c]) { out.push(it); return; }
+      if (done[it.c]) return;
+      done[it.c] = 1;
+      var rows = keep.filter(function (x) { return x.c === it.c; }), pos = order[it.c];
+      rows.filter(function (x) { return !headOf(x.k); })
+        .map(function (x, j) { return [own.call(pos, x.k) ? pos[x.k] : 1e6 + j, x]; })
+        .sort(function (a, b) { return a[0] - b[0]; })
+        .forEach(function (a) { out.push(a[1]); rows.forEach(function (x) { if (headOf(x.k) === a[1].k) out.push(x); }); });
+    });
+    if (data.view && Array.isArray(data.view.packs)) {
+      var idx = {}; out.forEach(function (it, i) { idx[it.k] = i; });
+      data.view.packs = Object.keys(packsOf).filter(function (h) { return idx[h] != null; }).map(function (h) {
+        return [idx[h]].concat(packsOf[h].filter(function (k) { return idx[k] != null; }).map(function (k) { return idx[k]; }));
+      }).filter(function (p) { return p.length > 1; });
+    }
+    data.items = out; data.ovRev = typeof ov.rev === "number" ? ov.rev : null;
+  }
 
   /* ---------- v4: view (groups / packs) ---------- */
   function setupView(data) {
@@ -447,8 +494,13 @@
 
   if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
   var src = (document.querySelector("meta[name=catalog]") || {}).content || "catalog.json";
-  fetch(src + (src.indexOf("?") < 0 ? "?t=" : "&t=") + Math.floor(Date.now() / 300000), {cache: "no-cache"})
+  var osrc = (document.querySelector("meta[name=overrides]") || {}).content || "overrides.json";
+  var bust = function (u, n) { return u + (u.indexOf("?") < 0 ? "?t=" : "&t=") + Math.floor(Date.now() / n); };
+  // shop-admin-v1: overrides.json is optional (missing / broken = no overrides); fetched every minute-bucket, no-cache
+  var ovp = fetch(bust(osrc, 60000), {cache: "no-cache"}).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  fetch(bust(src, 300000), {cache: "no-cache"})
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (d) { if (!d || d.v !== 1 || !Array.isArray(d.items)) throw new Error("bad"); boot(d); })
+    .then(function (d) { if (!d || d.v !== 1 || !Array.isArray(d.items)) throw new Error("bad");
+      return ovp.then(function (ov) { try { applyOverrides(d, ov); } catch (e) {} boot(d); }); })
     .catch(function () { err("商品目录加载失败，请稍后重试，或回到机器人点「👩‍💼 客服」直接下单。"); });
 })();

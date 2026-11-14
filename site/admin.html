@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<title>商品管理</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="admin.css?v=1">
+</head>
+<body class="adm">
+<header class="hd">
+  <div class="logo">🛠</div>
+  <div><div class="ttl">商品管理</div><div class="sub">香烟 · 酒水　排序 / 上架下架 / 改价格　只有老板能打开</div></div>
+</header>
+<div id="st" class="ast"></div>
+<main>
+  <div id="warn" class="mode" hidden></div>
+  <div id="chips" class="chips"></div>
+  <label class="search"><span>搜索</span><input id="q" type="search" maxlength="20" placeholder="输入商品名称，如 中华 / 茅台" autocomplete="off"></label>
+  <div id="flt" class="aflt"></div>
+  <div class="sec"><h2 id="sec-t">香烟</h2><span id="sec-n"></span></div>
+  <div id="tip" class="hint"></div>
+  <div id="alist" class="alist"></div>
+  <div id="err" class="err" hidden></div>
+</main>
+<footer class="bar">
+  <div><b id="chg">没有改动</b><div id="chg2" class="sub2">改完点「保存」，机器人和小程序都会更新</div></div>
+  <div class="abtn"><button id="undo" class="link" hidden>撤销本页改动</button><button id="save" class="primary" disabled>保存</button></div>
+</footer>
+<div id="sheet" class="sheet" hidden><div class="sheet-bg" id="sheet-bg"></div><div class="sheet-card" id="sheet-card"></div></div>
+<div id="toast" class="toast" hidden></div>
+<script src="admin.js?v=1"></script>
+</body>
+</html>
