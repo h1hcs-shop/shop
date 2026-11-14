@@ -4,11 +4,14 @@ Telegram 机器人「烟酒商城（小程序）」用的静态网页，托管�
 
 ## 目录
 - `site/` — 网页（index.html / app.js / style.css）和 `catalog.json`（由工作流生成；初始为空目录）。
+- `site/overrides.json`（shop-admin-v1）— 老板在机器人「🛠 商品管理」里对香烟/酒水做的改动的**公开副本**：只有商品码、下架列表、改后价格、排序和版本号（无任何人员/订单信息）。页面打开时读取并套用（下架的不显示、改价的显示新价、按老板的顺序）。正本在机器人私有库，由机器人运维导出后上传，或开启自动发布后由机器人写入。
+- `site/admin.html` / `admin.js` / `admin.css`（shop-admin-v1）— 老板专用的管理页。页面本身公开但只读，**只有从机器人里老板专属的底部键盘打开才能「保存」**，保存内容交给机器人，机器人只接受老板本人的保存。
+- `tools/check_overrides.py`（shop-admin-v1）— 校验 overrides.json 格式（工作流每次都跑）。
 - `tools/build_catalog.py` — 从 h1hcs.com 公开商城（吉隆坡仓）抓商品，用与机器人**同一份**代码分类、生成商品码，导出 catalog.json（名称、单位、规格、价格、原价、图片地址；无库存）。只有商品数据变化才改写文件；抓取失败或商品数骤减 50% 以上时保留旧文件。
 - `tools/catalog_view.py` — （v4）页面显示顺序：香烟 / 酒水（白酒→洋酒→葡萄酒→啤酒→其他）/ 重振雄风 / 槟榔 在前，同品牌放一起、价格从高到低（v4.1 起：香烟保持与华润万家商城完全相同的顺序，`catalog_view.MALL_ORDER`）；「X（整箱）」并进单件「X」的详情里加购（两者商品码不变）。只重排 items 并加 `view`，`build_catalog.py` 的 `VIEW = False` 即回退。
 - `tools/vendor/` — 与机器人相同的模块：`shop_cart.py`（逐字节相同）、`shop_miniapp.py`、`catalog_live.py`（唯一差别：`AGENT` 改为运行时从密钥读取）。见 `VENDOR_SHA256.txt`。
 - `tools/secret_scan.py` — 密钥/ID 扫描（推送前本地跑一次；工作流每次也跑）。
-- `.github/workflows/catalog-pages.yml` — 每小时（UTC 第 23 分）构建；变化时提交 `site/catalog.json` 并部署 Pages；手动运行或推送时也部署。
+- `.github/workflows/catalog-pages.yml` — 每小时（UTC 第 23 分）抓商城价格并构建；变化时提交 `site/catalog.json` 并部署 Pages。手动 Run workflow 时 `sync` 勾选=抓价格，不勾=只重新发布。**推送（例如更新 overrides.json）只重新发布页面，不抓价格**（shop-admin-v1）。
 
 ## 首次设置（账号 h1hcs-shop，仓库名 shop；全程网页操作，不建任何 token）
 1. 本地先跑：`python tools/test_build_catalog.py && python tools/secret_scan.py .`（0 finding）。
