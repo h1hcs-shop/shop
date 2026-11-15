@@ -136,6 +136,7 @@
   function setQty(k, q) {
     var L = S.data.limits;
     if (q > L.qty) { toast("每款最多 " + L.qty); q = L.qty; }
+    if (q > 0 && !S.cart[k]) toast("✅ 已加入购物车");   // polish-v1: visible feedback on the first add
     if (q <= 0) delete S.cart[k];
     else {
       if (!S.cart[k] && Object.keys(S.cart).length >= L.lines) { toast("一单最多 " + L.lines + " 款商品"); return; }
@@ -154,11 +155,12 @@
     w.append(m, n, p); return w;
   }
 
+  function onSale(it) { return it.p != null && it.o != null && it.o > it.p; }   // polish-v1: mall original price above ours
   function priceNode(it) {
     var d = el("div", "money");
     if (it.p == null) { d.textContent = "价格待确认"; return d; }
     d.append(el("small", null, "RM"), el("b", null, money(it.p)), el("i", null, "/ " + it.u));
-    if (it.o) d.append(el("s", null, "RM " + money(it.o)));
+    if (onSale(it)) d.append(el("s", null, "RM " + money(it.o)));
     return d;
   }
 
@@ -176,6 +178,7 @@
   function tile(it) {      // v3: 5 per row; tap = detail sheet with the − / + buttons. v4: single price, 整箱 in the sheet
     var t = el("button", "tile"); t.type = "button";
     var im = imgBox(it); if (S.packs[it.k]) im.append(el("span", "pk", "可整箱"));
+    if (onSale(it)) { im.append(el("span", "sale", "特价")); t.classList.add("on-sale"); }   // polish-v1
     t.append(im, el("div", "tn", it.n), el("div", "tp", it.p == null ? "待确认" : "RM" + money(it.p) + (it.u === "箱" ? "/箱" : "")));
     var q = groupQty(it.k); if (q) t.append(el("span", "badge", String(q)));
     t.onclick = function () { openSheet(it.k); };
@@ -257,7 +260,7 @@
     var g = curGroup();
     $("sec-t").textContent = S.q ? "搜索「" + S.q + "」" : (g ? g.name : "全部");
     $("sec-n").textContent = v.length + " 款商品 · 点商品选数量";
-    if (!v.length) l.append(el("div", "empty", S.q ? "没找到相关商品，换个关键词试试" : "这个品类暂时没有商品"));
+    if (!v.length) l.append(el("div", "empty", S.q ? "🔍 没找到「" + S.q + "」，换个关键词试试，或回机器人问客服" : "这个品类暂时没有商品"));
     S.listV = entries(v); S.listN = 0; moreTiles();
   }
   // render in batches (1000+ goods): only PAGE_N tiles at a time, the next batch when the sentinel scrolls into view;
@@ -290,7 +293,8 @@
     var t = totals();
     $("tot").textContent = "RM " + money(t.sub) + (t.missing ? "+" : "");
     $("cnt").textContent = "已选 " + t.kinds + " 款，共 " + t.n + " 件";
-    $("go").textContent = S.tab === "cart" ? "继续选购" : "购物车（" + t.kinds + "）";
+    $("go").textContent = S.tab === "cart" ? "继续选购" : t.kinds ? "去结算（" + t.kinds + "）" : "购物车（0）";
+    $("go").classList.toggle("ready", S.tab !== "cart" && t.kinds > 0);
     $("tabn").textContent = t.kinds ? "（" + t.kinds + "）" : "";
   }
 
@@ -475,7 +479,7 @@
     load(); renderChips(); renderList(); renderBar();
     if (tg && !KB_LAUNCH) $("mode").hidden = false;   // opened from the menu button: say what 提交 will do
     var u = (data.updated_at || "").replace("T", " ").slice(5, 16);
-    $("upd").textContent = (u ? "🕒 价格更新：" + u + "（UTC+8）· " : "") + "价格以客服确认为准，不显示库存";
+    $("upd").textContent = (u ? "🕒 价格更新：" + u + "（UTC+8）· " : "") + "下单时按最新价格计算，以客服确认为准";
     $("q").oninput = function (e) { S.q = e.target.value.trim().slice(0, 20); renderChips(); renderList(); };
     $("note").oninput = function (e) { S.note = e.target.value.replace(/[\r\n]/g, " ").slice(0, S.data.limits.note); $("notec").textContent = S.note.length; save(); };
     $("addr").oninput = function (e) { S.addr = one(e.target.value).slice(0, ADDR_MAX); save(); };

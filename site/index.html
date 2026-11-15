@@ -6,12 +6,13 @@
 <meta name="referrer" content="no-referrer">
 <title>下单入口</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <header class="hd">
   <div class="logo">🛒</div>
-  <div><div class="ttl">下单入口</div><div class="sub">烟酒槟榔 · 零食饮料 · 日用百货　货到付款</div></div>
+  <div><div class="ttl shine">下单入口</div><div class="sub">烟酒槟榔 · 零食饮料 · 日用百货</div>
+    <div class="pills"><span class="pill hot">🚚 吉隆坡·新山免费送</span><span class="pill">💵 货到付款</span><span class="pill">⏰ 12:00–凌晨2:00</span></div></div>
 </header>
 <nav class="tabs">
   <button data-tab="shop" class="on">选购商品</button>
@@ -20,7 +21,7 @@
 <main>
   <section id="v-shop">
     <div id="chips" class="chips"></div>
-    <label class="search"><span>搜索</span><input id="q" type="search" maxlength="20" placeholder="输入商品名称，如 中华 / 茅台 / 方便面" autocomplete="off"></label>
+    <label class="search"><span>🔍</span><input id="q" type="search" maxlength="20" placeholder="输入商品名称，如 中华 / 茅台 / 方便面" autocomplete="off"></label>
     <div class="sec"><h2 id="sec-t">全部</h2><span id="sec-n"></span></div>
     <div id="list" class="grid"></div>
     <p id="upd" class="foot"></p>
@@ -47,11 +48,11 @@
         <div class="hint">送到时再付款，选一种你方便的方式。机器人不收款，具体由客服和你确认。</div></div>
       <div class="fld"><div class="lbl">订单备注（选填，单行）</div>
         <input id="note" type="text" maxlength="100" placeholder="有需要特别说明的内容，可写在这里"><div class="hint"><span id="notec">0</span>/100</div></div>
-      <button id="submit" class="primary">提交订单并联系客服</button>
+      <button id="submit" class="primary cta">✅ 提交订单 · 货到付款</button>
       <button id="clear" class="link">清空购物车</button>
-      <p id="foot2" class="foot">不显示库存，以客服确认为准。机器人里不收款；价格以机器人订单为准，运费、总额与送达时间由客服确认。</p>
+      <p id="foot2" class="foot">💵 机器人里不收款，送到再付。价格以机器人订单为准，运费、总额与送达时间由客服确认。</p>
     </div>
-    <div id="empty" class="empty" hidden>购物车是空的，去「选购商品」挑选吧。</div>
+    <div id="empty" class="empty" hidden>🛒 购物车还是空的<br>去「选购商品」挑几样吧</div>
   </section>
   <div id="err" class="err" hidden></div>
 </main>
@@ -61,6 +62,6 @@
 </footer>
 <div id="sheet" class="sheet" hidden><div class="sheet-bg" id="sheet-bg"></div><div class="sheet-card" id="sheet-card"></div></div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
