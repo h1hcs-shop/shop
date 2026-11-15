@@ -14,13 +14,13 @@ import catalog_live, shop_cart, shop_miniapp
 import catalog_view
 
 OUT = os.path.join(os.path.dirname(HERE), "site", "catalog.json")
-# same order as the bot's 客服 list (index 0 / 1). "user" = the PUBLIC usernames the bot already shows in its 客服 buttons;
+# same order as the bot's 客服 list (index 0 / 1 / 2). "user" = the PUBLIC usernames the bot already shows in its 客服 buttons;
 # exported only when OPTS["jump"] is on (the page needs them to open the 客服 chat with the order pre-filled).
-CS_ALL = [{"name": "阿霞", "icon": "👩", "user": "hycs1313"}, {"name": "阿东", "icon": "👨", "user": "zycs7"}]
-# Kimi 21:03 「客服阿东全部去掉，就只留一个客服阿霞」. Rollback = CS_DROP = [] and push (page shows both again; pair it with
-# the bot switch cs_only_axia: false). Only trailing entries may be dropped: the page sends the index, 阿霞 must stay 0.
-# With ONE 客服 left the page shows no 「选择客服」 and every order goes to 阿霞.
-CS_DROP = ["zycs7"]
+# Indices must never be renumbered (historical orders). 小玉 is appended as 2; 阿霞(0) and 阿东(1) stay in CS_ALL but are dropped.
+CS_ALL = [{"name": "阿霞", "icon": "👩", "user": "hycs1313"}, {"name": "阿东", "icon": "👨", "user": "zycs7"}, {"name": "小玉", "icon": "👩", "user": "Zgcs1211"}]
+# Kimi 00:34 「客服全部改成@Zgcs1211 小玉」. Rollback = CS_DROP = ["zycs7"] and push (page shows 阿霞 again; pair it with
+# restoring the previous bot.py). With ONE 客服 left the page shows no 「选择客服」 and every order goes to 小玉 (list index 0).
+CS_DROP = ["hycs1313", "zycs7"]
 CS = [c for c in CS_ALL if c["user"] not in CS_DROP]
 # Page switches (shop-miniapp-v3). Rollback = set to False and push: the next build changes catalog.json and redeploys.
 #   location: 📍 定位 + manual address   phone: 📱 requestContact + manual phone   jump: open the 客服 chat pre-filled on submit
