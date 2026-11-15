@@ -56,7 +56,7 @@ class T(unittest.TestCase):
         for it in d["items"]:
             self.assertFalse({"address", "lat", "lng", "phone", "stock"} & set(it))
         # v3: only the bot's PUBLIC 客服 usernames (for the pre-filled jump) + page switches; geocoding off by default
-        self.assertEqual(d["cs"], [{"name": "阿霞", "icon": "👩", "user": "hycs1313"}])        # Kimi 21:03: CS_DROP = ["zycs7"]
+        self.assertEqual(d["cs"], [{"name": "小玉", "icon": "👩", "user": "Zgcs1211"}])        # Kimi 00:34: CS_DROP = ["hycs1313","zycs7"]
         self.assertEqual({k: d["opts"][k] for k in ("location", "phone", "jump", "pay", "geocode")},
                          {"location": True, "phone": True, "jump": True, "pay": True, "geocode": False})
         self.assertTrue(d["opts"]["geocode_url"].startswith("https://"))
@@ -84,18 +84,21 @@ class T(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(B.build(get_json=fake_store(PRODUCTS)[0], out=self.out, agent="", sleep=lambda s: None), 2)
 
-    def test_cs_drop_only_axia_and_rollback(self):
-        # Kimi 21:03 「客服阿东全部去掉，就只留一个客服阿霞」: config CS_DROP; 阿霞 stays index 0 (the page sends the index)
-        self.assertEqual(B.CS_DROP, ["zycs7"]); self.assertEqual(B.CS_ALL[0]["user"], "hycs1313")
+    def test_cs_drop_only_xiaoyu_and_rollback(self):
+        # Kimi 00:34 「客服全部改成@Zgcs1211 小玉」: append 小玉 as index 2; drop 阿霞 and 阿东. Page list index 0 is 小玉.
+        self.assertEqual(B.CS_DROP, ["hycs1313", "zycs7"]); self.assertEqual(B.CS_ALL[2]["user"], "Zgcs1211")
         self.assertEqual(B.CS, [c for c in B.CS_ALL if c["user"] not in B.CS_DROP])
+        self.assertEqual(B.CS, [{"name": "小玉", "icon": "👩", "user": "Zgcs1211"}])
         raw = (self.run_b(), open(self.out, encoding="utf-8").read())[1]
-        self.assertNotIn("zycs7", raw); self.assertNotIn("阿东", raw)
+        self.assertNotIn("zycs7", raw); self.assertNotIn("hycs1313", raw)
+        self.assertNotIn("阿东", raw); self.assertNotIn("阿霞", raw)
+        self.assertIn("Zgcs1211", raw); self.assertIn("小玉", raw)
         old = B.CS
-        try:                                   # rollback = CS_DROP = [] -> both 客服 again, same order as before
-            B.CS = [c for c in B.CS_ALL if c["user"] not in []]
+        try:                                   # rollback = CS_DROP = ["zycs7"] -> 阿霞 again (previous production)
+            B.CS = [c for c in B.CS_ALL if c["user"] not in ["zycs7"]]
             self.assertEqual(self.run_b()[0], 0)
             d = json.load(open(self.out, encoding="utf-8"))
-            self.assertEqual([c["user"] for c in d["cs"]], ["hycs1313", "zycs7"])
+            self.assertEqual([c["user"] for c in d["cs"]], ["hycs1313", "Zgcs1211"])
         finally:
             B.CS = old
 
@@ -105,7 +108,7 @@ class T(unittest.TestCase):
             B.OPTS["jump"] = False
             self.assertEqual(self.run_b()[0], 0)
             d = json.load(open(self.out, encoding="utf-8"))
-            self.assertEqual(d["cs"], [{"name": "阿霞", "icon": "👩"}])
+            self.assertEqual(d["cs"], [{"name": "小玉", "icon": "👩"}])
             self.assertFalse(d["opts"]["jump"])
         finally:
             B.OPTS.clear(); B.OPTS.update(o)
