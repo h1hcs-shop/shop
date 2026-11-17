@@ -6,13 +6,16 @@
 <meta name="referrer" content="no-referrer">
 <title>下单入口</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <header class="hd">
   <div class="logo">🛒</div>
-  <div><div class="ttl shine">下单入口</div><div class="sub">烟酒槟榔 · 零食饮料 · 日用百货</div>
-    <div class="pills"><span class="pill hot">🚚 吉隆坡·新山免费送</span><span class="pill">💵 货到付款</span><span class="pill">⏰ 12:00–凌晨2:00</span></div></div>
+  <div class="hd-main">
+    <div class="ttl-row"><div class="ttl shine">下单入口</div><span class="pill hot glow">🚚 吉隆坡·新山免费送</span></div>
+    <div class="sub">烟酒槟榔 · 零食饮料 · 日用百货</div>
+    <div class="pills"><span class="pill glow">⏰ 12:00–凌晨2:00</span><span class="pill glow">💵 货到付款</span></div>
+  </div>
 </header>
 <nav class="tabs">
   <button data-tab="shop" class="on">选购商品</button>
@@ -35,20 +38,21 @@
       <div class="kv"><span>订单总额</span><span>待确认</span></div>
       <div class="fld"><div class="lbl">配送城市</div><div id="city" class="seg"></div><div class="hint">新山按吉隆坡价格，同价</div></div>
       <div class="fld"><div class="lbl">选择客服</div><div id="cs" class="seg"></div></div>
-      <div class="fld" id="addr-box" hidden><div class="lbl">送货地址</div>
+      <div class="fld" id="addr-box" hidden><div class="lbl">送货地址 <span class="req req-confirm">（地址请确认）</span></div>
         <button id="loc" class="ghost">📍 定位我的位置</button>
         <div id="loc-st" class="hint"></div>
         <input id="addr" type="text" maxlength="120" placeholder="公寓/楼盘、座号、楼层、门牌（可直接填写或修改）" autocomplete="street-address">
-        <div id="osm" class="hint" hidden>地址数据 © OpenStreetMap 贡献者</div></div>
+        <div id="osm" class="hint" hidden>地址数据 © OpenStreetMap 贡献者</div>
+        <div id="addr-need" class="hint warn" hidden>还没填送货地址，建议先定位或填写，方便送货；不填的话再点一次「提交订单」也可以提交</div></div>
       <div class="fld" id="ph-box" hidden><div class="lbl">联系电话 <span class="req">（选填）</span></div>
         <input id="ph" type="tel" maxlength="23" placeholder="如 +60 12-345 6789" autocomplete="tel">
         <div class="hint">不填也可以：客服会直接在 Telegram 上联系你。</div></div>
       <div class="fld" id="pay-box" hidden><div class="lbl">付款方式：货到付款 <span class="req">（必选）</span></div>
         <div id="pay" class="seg pay"></div>
-        <div class="hint">送到时再付款，选一种你方便的方式。机器人不收款，具体由客服和你确认。</div></div>
+        <div class="hint">送到时再付款，选一种你方便的方式。机器人不收款，具体由客服和你确认。</div>
+        <div id="fx-hint" class="hint fx-hint" hidden></div></div>
       <div class="fld"><div class="lbl">订单备注（选填，单行）</div>
         <input id="note" type="text" maxlength="100" placeholder="有需要特别说明的内容，可写在这里"><div class="hint"><span id="notec">0</span>/100</div></div>
-      <button id="submit" class="primary cta">✅ 提交订单 · 货到付款</button>
       <button id="clear" class="link">清空购物车</button>
       <p id="foot2" class="foot">💵 机器人里不收款，送到再付。价格以机器人订单为准，运费、总额与送达时间由客服确认。</p>
     </div>
@@ -57,11 +61,14 @@
   <div id="err" class="err" hidden></div>
 </main>
 <footer class="bar">
-  <div><b id="tot">RM 0</b><div id="cnt" class="sub2">已选 0 款，共 0 件</div></div>
-  <button id="go" class="primary">购物车（0）</button>
+  <div class="bar-info"><b id="tot">RM 0</b><div id="cnt" class="sub2">已选 0 款，共 0 件</div></div>
+  <div class="bar-actions">
+    <button id="submit" class="primary" hidden>提交订单</button>
+    <button id="go" class="primary">购物车（0）</button>
+  </div>
 </footer>
 <div id="sheet" class="sheet" hidden><div class="sheet-bg" id="sheet-bg"></div><div class="sheet-card" id="sheet-card"></div></div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

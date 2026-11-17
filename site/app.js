@@ -27,7 +27,7 @@
   var PAY = [["cash", "现金"], ["tng", "TNG"], ["usdt", "USDT"], ["wechat", "微信"], ["alipay", "支付宝"]];
   function payLabel(c) { var x = PAY.filter(function (p) { return p[0] === c; })[0]; return x ? x[1] : ""; }
   var S = {cat: "all", q: "", tab: "shop", cart: {}, city: "KL", cs: null, note: "", addr: "", ph: "", pc: false, loc: null, pay: null,
-           locMsg: "", data: null, byKey: {}, opts: {}, groups: [], packs: {}, hidden: {}, headOf: {}};
+           locMsg: "", data: null, byKey: {}, opts: {}, groups: [], packs: {}, hidden: {}, headOf: {}, addrWarned: false, fx: null, fxFail: false};
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -283,6 +283,87 @@
     }
   }
 
+  /* header-glow-v1 fx: live MYR→USD / MYR→CNY, USDT = USD 1:1. No hardcoded rate. Cache 1h.
+     Primary open.er-api.com, fallback jsdelivr currency-api. Failure = RM only, never blocks checkout. */
+  var FX_LS = "h1h_fx_v1", FX_TTL = 3600 * 1000;
+  var FX_SRC = [
+    {url: "https://open.er-api.com/v6/latest/MYR", pick: function (j) {
+      var r = j && j.result === "success" && j.rates ? j.rates : null;
+      return r ? fxRates(r.USD, r.CNY) : null;
+    }},
+    {url: "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/myr.json", pick: function (j) {
+      var m = j && j.myr; return m ? fxRates(m.usd, m.cny) : null;
+    }}
+  ];
+  function fxRates(usd, cny) {
+    usd = +usd; cny = +cny;
+    return (usd > 0 && cny > 0 && isFinite(usd) && isFinite(cny)) ? {usd: usd, cny: cny} : null;
+  }
+  function fxCache() {
+    try {
+      var o = JSON.parse(localStorage.getItem(FX_LS) || "");
+      if (o && typeof o.t === "number" && (Date.now() - o.t) < FX_TTL) return fxRates(o.usd, o.cny);
+    } catch (e) {}
+    return null;
+  }
+  function fxSave(r) { try { localStorage.setItem(FX_LS, JSON.stringify({t: Date.now(), usd: r.usd, cny: r.cny})); } catch (e) {} }
+  function fx2(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+  function fxInfo(rm) {
+    if (!S.opts.pay || !payLabel(S.pay) || S.pay === "cash" || S.pay === "tng") return null;
+    if (S.pay === "usdt") {
+      if (!S.fx) return {conv: null, hint: "汇率暂时获取不到，金额由客服确认"};
+      return {conv: " ≈ " + fx2(rm * S.fx.usd) + " USDT",
+              hint: "按当前汇率 1 USDT ≈ RM " + fx2(1 / S.fx.usd) + " 换算，仅供参考，实际金额以客服确认为准"};
+    }
+    if (S.pay === "wechat" || S.pay === "alipay") {
+      if (!S.fx) return {conv: null, hint: "汇率暂时获取不到，金额由客服确认"};
+      return {conv: " ≈ ¥" + fx2(rm * S.fx.cny),
+              hint: "按当前汇率 1 CNY ≈ RM " + fx2(1 / S.fx.cny) + " 换算，仅供参考，实际金额以客服确认为准"};
+    }
+    return null;
+  }
+  function moneyLine(rm, suffix) {
+    var s = "RM " + money(rm) + (suffix || ""), fx = fxInfo(rm);
+    if (fx && fx.conv) s += fx.conv;
+    return s;
+  }
+  function fillMoney(el, rm, suffix) {
+    if (!el) return;
+    var fx = fxInfo(rm);
+    el.textContent = "";
+    el.append(document.createTextNode("RM " + money(rm) + (suffix || "")));
+    if (fx && fx.conv) {
+      el.append(document.createElement("br"));
+      el.append(document.createTextNode(fx.conv.replace(/^\s≈\s/, "≈ ")));
+    }
+    el.classList.toggle("fx", !!(fx && fx.conv));
+  }
+  function renderMoney() {
+    var t = totals(), fx = fxInfo(t.sub);
+    fillMoney($("tot"), t.sub, t.missing ? "+" : "");
+    fillMoney($("sub"), t.sub, t.missing ? "（部分待确认）" : "");
+    var h = $("fx-hint");
+    if (h) {
+      var show = !!(S.opts.pay && !$("pay-box").hidden && fx && fx.hint);
+      h.hidden = !show; h.textContent = show ? fx.hint : "";
+    }
+  }
+  function fetchFx() {
+    var hit = fxCache();
+    if (hit) { S.fx = hit; S.fxFail = false; renderMoney(); return; }
+    S.fx = null; S.fxFail = false;
+    (function next(i) {
+      if (i >= FX_SRC.length) { S.fxFail = true; renderMoney(); return; }
+      var spec = FX_SRC[i];
+      var ctl = window.AbortController ? new AbortController() : null;
+      if (ctl) setTimeout(function () { try { ctl.abort(); } catch (e) {} }, 8000);
+      fetch(spec.url, {cache: "no-cache", referrerPolicy: "strict-origin-when-cross-origin", signal: ctl ? ctl.signal : undefined})
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (j) { var r = spec.pick(j); if (!r) throw 0; S.fx = r; S.fxFail = false; fxSave(r); renderMoney(); })
+        .catch(function () { next(i + 1); });
+    })(0);
+  }
+
   function totals() {
     var n = 0, kinds = 0, sub = 0, missing = false;
     Object.keys(S.cart).forEach(function (k) { var it = S.byKey[k]; if (!it) return; kinds++; n += S.cart[k]; if (it.p == null) missing = true; else sub += it.p * S.cart[k]; });
@@ -291,10 +372,14 @@
 
   function renderBar() {
     var t = totals();
-    $("tot").textContent = "RM " + money(t.sub) + (t.missing ? "+" : "");
+    var onCart = S.tab === "cart";
     $("cnt").textContent = "已选 " + t.kinds + " 款，共 " + t.n + " 件";
-    $("go").textContent = S.tab === "cart" ? "继续选购" : t.kinds ? "去结算（" + t.kinds + "）" : "购物车（0）";
-    $("go").classList.toggle("ready", S.tab !== "cart" && t.kinds > 0);
+    renderMoney();
+    $("go").textContent = onCart ? "继续选购" : t.kinds ? "去结算（" + t.kinds + "）" : "购物车（0）";
+    $("go").classList.toggle("ready", !onCart && t.kinds > 0);
+    $("go").classList.toggle("primary", !onCart);
+    $("go").classList.toggle("side", onCart);
+    $("submit").hidden = !(onCart && t.kinds);
     $("tabn").textContent = t.kinds ? "（" + t.kinds + "）" : "";
   }
 
@@ -302,6 +387,9 @@
     box.textContent = "";
     opts.forEach(function (o) { var b = el("button", o.v === cur ? "on" : "", o.t); b.onclick = function () { onpick(o.v); }; box.append(b); });
   }
+
+  function hasAddr() { return !!(S.loc || (S.addr && S.addr.trim())); }
+  function clearAddrNeed() { $("addr-box").classList.remove("need"); $("addr-need").hidden = true; }
 
   /* ---------- v3: address (Telegram LocationManager -> browser geolocation -> manual) ---------- */
   function renderAddr() {
@@ -321,6 +409,7 @@
     }
     $("loc").textContent = S.loc ? "📍 重新定位" : "📍 定位我的位置";
     if (document.activeElement !== $("addr")) $("addr").value = S.addr;
+    if (hasAddr()) clearAddrNeed();
   }
   function gotLoc(lat, lng, acc) {
     if (typeof lat !== "number" || typeof lng !== "number" || !isFinite(lat) || !isFinite(lng)) return locFail("定位失败，请重试或手动填写地址");
@@ -387,6 +476,7 @@
   function renderPay() {
     $("pay-box").hidden = !S.opts.pay;
     seg($("pay"), PAY.map(function (p) { return {v: p[0], t: p[1]}; }), S.pay, function (v) { S.pay = v; $("pay-box").classList.remove("need"); save(); renderPay(); });
+    renderMoney();
   }
 
   function renderCart() {
@@ -399,7 +489,7 @@
       line.append(document.createTextNode("　")); line.append(rm);
       r.querySelector(".info").append(line); L.append(r);
     });
-    var t = totals(); $("sub").textContent = "RM " + money(t.sub) + (t.missing ? "（部分待确认）" : "");
+    renderMoney();
     seg($("city"), S.data.cities.map(function (c) { return {v: c.id, t: c.name}; }), S.city, function (v) { S.city = v; save(); renderCart(); });
     // Kimi 21:03: only 客服阿霞 left -> no choice shown, the order simply goes to her (index 0)
     var oneCs = S.data.cs.length === 1;
@@ -455,6 +545,15 @@
       $("pay-box").classList.add("need"); $("pay-box").scrollIntoView({block: "center"}); haptic("medium");
       return toast("请选择付款方式（货到付款）");
     }
+    // header-glow-v1: address is marked required, but only reminded once; a second tap still submits (payload unchanged).
+    if (S.opts.location && !hasAddr() && !S.addrWarned) {
+      S.addrWarned = true;
+      $("addr-box").classList.add("need");
+      $("addr-need").hidden = false;
+      $("addr-box").scrollIntoView({block: "center"});
+      haptic("medium");
+      return;
+    }
     if (S.opts.phone && S.ph.trim() && !(PHONE_RX.test(S.ph.trim()) && S.ph.replace(/\D/g, "").length >= 6)) return err("电话号码格式不对（只填数字，可带 + 和区号）");
     var user = csUser(S.cs), jump = !!(S.opts.jump && user && ver("7.0") && tg && typeof tg.openTelegramLink === "function");
     var p = payload(jump);
@@ -482,7 +581,7 @@
     $("upd").textContent = (u ? "🕒 价格更新：" + u + "（UTC+8）· " : "") + "下单时按最新价格计算，以客服确认为准";
     $("q").oninput = function (e) { S.q = e.target.value.trim().slice(0, 20); renderChips(); renderList(); };
     $("note").oninput = function (e) { S.note = e.target.value.replace(/[\r\n]/g, " ").slice(0, S.data.limits.note); $("notec").textContent = S.note.length; save(); };
-    $("addr").oninput = function (e) { S.addr = one(e.target.value).slice(0, ADDR_MAX); save(); };
+    $("addr").oninput = function (e) { S.addr = one(e.target.value).slice(0, ADDR_MAX); if (hasAddr()) clearAddrNeed(); save(); };
     $("ph").oninput = function (e) { S.ph = e.target.value.slice(0, 23); save(); };
     $("loc").onclick = locate;
     $("go").onclick = function () { showTab(S.tab === "cart" ? "shop" : "cart"); };
@@ -492,7 +591,9 @@
     if (tg) { try { tg.BackButton.onClick(function () { if (S.sheetKey) closeSheet(); else showTab("shop"); }); } catch (e) {} }
     var rw = 0; window.addEventListener("resize", function () { if (innerWidth !== rw) { rw = innerWidth; renderChips(); } });
     S.render = function () { save(); renderBar(); if (S.tab === "cart") renderCart(); else renderList(); };
-    S.gotLoc = gotLoc; S.openSheet = openSheet; S.summary = summary; S.payload = payload;
+    S.gotLoc = gotLoc; S.openSheet = openSheet; S.summary = summary; S.payload = payload; S.submit = submit; S.hasAddr = hasAddr;
+    S.fxInfo = fxInfo; S.fetchFx = fetchFx; S.fxCache = fxCache;
+    fetchFx();
     window.__shop = S;   // for the offline demo / screenshots
   }
 

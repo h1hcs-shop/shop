@@ -95,4 +95,40 @@ animation:h1h-shine 3.2s linear infinite;font-size:22px;letter-spacing:1px}
 .primary.cta{font-size:17px;box-shadow:0 4px 14px rgba(11,119,179,.35)}
 #go.ready{animation:h1h-pulse 1.8s ease-in-out infinite}
 @keyframes h1h-pulse{0%,100%{box-shadow:0 0 0 0 rgba(11,119,179,.45)}50%{box-shadow:0 0 0 7px rgba(11,119,179,0)}}
-@media (prefers-reduced-motion: reduce){.ttl.shine,#go.ready{animation:none}}
+/* prefers-reduced-motion: see header-glow-v1 block below */
+/* header-glow-v1 (Kimi 11-16 「免费送放到下单入口后面，营业时间和货到付款一排，发光字体一闪一闪」).
+   Title keeps the polish-v1 shimmer. Promo / hours / COD use a breathing glow (1.6s).
+   Animations stop when the system asks for less motion; a static soft glow remains. */
+.hd-main{flex:1;min-width:0}
+.ttl-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0}
+.ttl.shine{white-space:nowrap;flex:0 1 auto}
+.ttl-row .pill{flex:0 1 auto}
+.pills{margin-top:5px}
+.pill.glow{font-weight:700;animation:h1h-glow-soft 1.6s ease-in-out infinite;
+box-shadow:0 0 4px rgba(11,119,179,.28);text-shadow:0 0 4px rgba(11,119,179,.25);border-color:rgba(11,119,179,.45);color:#0a6ea6}
+.pill.hot.glow{color:#fff;border-color:#e5484d;animation:h1h-glow-hot 1.6s ease-in-out infinite;
+box-shadow:0 0 6px rgba(229,72,77,.55);text-shadow:0 0 4px rgba(255,220,160,.45)}
+@keyframes h1h-glow-soft{0%,100%{box-shadow:0 0 3px rgba(11,119,179,.22);text-shadow:0 0 2px rgba(11,119,179,.18)}
+50%{box-shadow:0 0 8px rgba(11,119,179,.5),0 0 14px rgba(255,176,32,.28);text-shadow:0 0 6px rgba(11,119,179,.4)}}
+@keyframes h1h-glow-hot{0%,100%{box-shadow:0 0 4px rgba(229,72,77,.42);filter:brightness(1);text-shadow:0 0 2px rgba(255,200,120,.3)}
+50%{box-shadow:0 0 10px rgba(255,90,90,.85),0 0 18px rgba(255,190,50,.48);filter:brightness(1.1);text-shadow:0 0 6px rgba(255,255,255,.5)}}
+@media (prefers-reduced-motion: reduce){.ttl.shine,#go.ready,.pill.glow{animation:none;filter:none}
+.pill.hot.glow{box-shadow:0 0 6px rgba(229,72,77,.5);text-shadow:0 0 4px rgba(255,220,160,.4)}
+.pill.glow:not(.hot){box-shadow:0 0 5px rgba(11,119,179,.32);text-shadow:0 0 4px rgba(11,119,179,.28)}}
+
+/* header-glow-v1 cart (Kimi 11-16 「地址必填提醒一次；底部提交订单 + 继续选购」) */
+.req-need{color:#e5484d;font-weight:700}
+.req-confirm{color:var(--hint);font-weight:400}
+.hint.warn{color:#a12622;font-weight:600}
+.toast{max-width:calc(100% - 32px);line-height:1.4;text-align:center;white-space:normal}
+.bar{gap:10px}
+.bar-info{min-width:0;flex:1 1 auto}
+.bar-info b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-actions{display:flex;gap:8px;align-items:center;flex:0 0 auto}
+.bar .primary,.bar .side{padding:10px 12px;font-size:15px;white-space:nowrap;border-radius:10px;line-height:1.2}
+.bar .side{border:1px solid var(--line);background:var(--sec);color:var(--acc);font-weight:600}
+
+/* header-glow-v1 fx (Kimi 11-16 「现金/TNG 显示马币，USDT/微信/支付宝按汇率换算」) */
+.fx-hint{margin-top:6px}
+.bar-info b.fx{font-size:14px;white-space:normal;line-height:1.25;letter-spacing:-.2px;font-weight:700}
+.sum b{text-align:right;max-width:62%;line-height:1.3}
