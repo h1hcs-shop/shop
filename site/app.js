@@ -31,7 +31,7 @@
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-  function money(v) { if (v == null) return "价格待确认"; var s = (Math.round(v * 100) / 100).toFixed(2).replace(/\.00$/, ""); return s.replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+  function money(v) { if (v == null) return "价格待确认"; return (Math.round(v * 100) / 100).toFixed(2).replace(/\.00$/, ""); }
   function norm(s) { return (s || "").toLowerCase().replace(/[\s（）()【】\[\]·•\-_/]/g, ""); }
   function toast(t) { var x = $("toast"); x.textContent = t; x.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(function () { x.hidden = true; }, 1800); }
   function haptic(k) { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(k || "light"); } catch (e) {} }
